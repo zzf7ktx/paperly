@@ -1,0 +1,64 @@
+import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
+
+test('demo, theme preference, and panel controls work', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/');
+  await expect(page.getByRole('article', { name: 'Example PDF preview' })).toBeVisible();
+  await page.getByRole('button', { name: 'Theme: system. Click to change.' }).click();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Theme: light. Click to change.' })).toBeVisible();
+  await page.getByRole('button', { name: 'Collapse pages panel' }).click();
+  await expect(page.getByRole('button', { name: 'Expand pages panel' })).toBeVisible();
+  await page.getByRole('button', { name: 'Expand pages panel' }).click();
+  expect(errors).toEqual([]);
+});
+
+test('edit, undo, redo, fill forms, switch documents, and export a readable PDF', async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const first = pdf.addPage([612, 792]);
+  first.drawText('Original agreement', { x: 60, y: 700, size: 18, font });
+  const field = pdf.getForm().createTextField('Customer name');
+  field.setText('Original customer');
+  field.addToPage(first, { x: 60, y: 590, width: 240, height: 30 });
+  pdf.addPage([612, 792]).drawText('Second page', { x: 60, y: 700, size: 18, font });
+  const buffer = Buffer.from(await pdf.save());
+  await page.goto('/');
+  const upload = page.locator('input[type="file"][accept="application/pdf,.pdf"]');
+  await upload.setInputFiles({ name: 'agreement.pdf', mimeType: 'application/pdf', buffer });
+  const text = page.locator('.text-layer [contenteditable="true"]').filter({ hasText: 'Original agreement' });
+  await expect(text).toBeVisible();
+  await text.fill('Updated agreement');
+  // Existing text commits when focus leaves the contenteditable field.
+  await page.keyboard.press('Tab');
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.locator('.text-layer')).toContainText('Original agreement');
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await expect(page.locator('.text-layer')).toContainText('Updated agreement');
+  await page.getByRole('textbox', { name: 'Customer name', exact: true }).fill('Ada Lovelace');
+  await page.getByRole('button', { name: 'Open page 2', exact: true }).click();
+  await expect(page.locator('.text-layer')).toContainText('Second page');
+  await page.getByRole('button', { name: 'Open page 1', exact: true }).click();
+  await expect(page.locator('.text-layer')).toContainText('Updated agreement');
+  await upload.setInputFiles({ name: 'other.pdf', mimeType: 'application/pdf', buffer });
+  await expect(page.locator('.document-tab')).toHaveCount(2);
+  await page.locator('.document-tab-select').filter({ hasText: 'agreement' }).click();
+  await expect(page.locator('.text-layer')).toContainText('Updated agreement');
+  await expect(page.getByRole('textbox', { name: 'Customer name', exact: true })).toHaveValue('Ada Lovelace');
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export PDF', exact: true }).click();
+  const download = await downloadPromise;
+  const exportedPath = testInfo.outputPath('agreement-edited.pdf');
+  await download.saveAs(exportedPath);
+  const exported = await PDFDocument.load(await readFile(exportedPath));
+  expect(exported.getPageCount()).toBe(2);
+  expect(exported.getForm().getTextField('Customer name').getText()).toBe('Ada Lovelace');
+  await upload.setInputFiles(exportedPath);
+  await expect(page.locator('.text-layer')).toContainText('Updated agreement');
+  expect(errors).toEqual([]);
+});

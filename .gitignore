@@ -1,0 +1,15 @@
+node_modules/
+.next/
+dist/
+out/
+portable-build/
+electron-dist/
+build/
+.wrangler/
+.npm-cache/
+*.tsbuildinfo
+test-results/
+playwright-report/
+*.log
+.env*
+!.env.example

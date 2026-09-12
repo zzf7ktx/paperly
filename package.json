@@ -1,0 +1,91 @@
+{
+  "name": "sites-project",
+  "version": "0.1.0",
+  "description": "Paperly desktop and browser PDF editor",
+  "private": true,
+  "main": "electron/main.cjs",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "copy:ocr": "node scripts/copy-ocr-assets.cjs",
+    "dev": "npm run copy:ocr && vinext dev",
+    "build": "npm run copy:ocr && vinext build",
+    "build:portable": "npm run copy:ocr && vite build --config portable.vite.config.ts && node scripts/package-portable.cjs",
+    "electron": "npm run build:portable && electron .",
+    "build:electron": "npm run build:portable && npm run build:icons && electron-builder --win nsis",
+    "build:electron:dir": "npm run build:portable && npm run build:icons && electron-builder --dir",
+    "start": "vinext start",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "typecheck": "tsc --noEmit",
+    "build:icons": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-electron-icon.ps1",
+    "test:e2e": "playwright test",
+    "format": "prettier --write app features lib"
+  },
+  "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "next": "16.2.6",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.4.149",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/workers-types": "4.20260515.1",
+    "@openai/sites-vite-plugin": "^0.1.0 || ^0.2.0",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "electron": "^38.1.2",
+    "electron-builder": "^26.0.12",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "prettier": "^3.9.6",
+    "react-server-dom-webpack": "19.2.6",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3",
+    "vinext": "1.0.0-beta.3",
+    "vite": "8.0.13",
+    "wrangler": "4.92.0"
+  },
+  "type": "module",
+  "build": {
+    "appId": "com.paperly.editor",
+    "productName": "Paperly",
+    "artifactName": "Paperly-Setup-${version}.${ext}",
+    "directories": {
+      "output": "electron-dist"
+    },
+    "files": [
+      "electron/main.cjs",
+      "build/icon.png",
+      "package.json",
+      "!node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "portable-build/app",
+        "to": "app"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
