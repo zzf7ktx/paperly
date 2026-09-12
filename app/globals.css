@@ -1320,8 +1320,9 @@ button:disabled {
 }
 .loading-overlay {
   position: fixed;
-  inset: 68px 0 0;
-  background: #17312be0;
+  inset: 0;
+  background: #17312bd9;
+  backdrop-filter: blur(4px);
   z-index: 20;
   color: #fff;
   display: flex;
@@ -1329,13 +1330,17 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  padding: 24px;
+  text-align: center;
 }
 .loading-overlay strong {
+  padding: 18px 24px 0;
   font:
     500 26px Georgia,
     serif;
 }
 .loading-overlay span {
+  max-width: 260px;
   font-size: 11px;
   color: #bfd0ca;
 }
@@ -1346,7 +1351,7 @@ button:disabled {
   border-top-color: #ff765f;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
-  margin-bottom: 8px;
+  margin-bottom: 2px;
 }
 @keyframes spin {
   to {
@@ -4802,6 +4807,7 @@ select:not([multiple]) {
 .font-upload-button {
   width: 100%;
   min-height: 32px;
+  margin-top: 8px;
   border: 1px dashed #9bbcaf;
   border-radius: 7px;
   background: #f4f9f7;
@@ -5490,6 +5496,9 @@ select:not([multiple]) {
   color: #a8dcca;
   border-color: #497767;
 }
+.dark-mode .data-repeater {
+  border-top-color: #3a4742;
+}
 .dark-mode .data-preview span {
   background: #252e2a;
   color: #bac7c2;
@@ -5817,7 +5826,48 @@ select:not([multiple]) {
   accent-color: #78bba7;
 }
 .dark-mode .ocr-confidence-control input[type='range']::-webkit-slider-runnable-track {
-  background: initial;
+  height: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    #67ad99 0 var(--ocr-range-progress),
+    #3a4742 var(--ocr-range-progress) 100%
+  );
+}
+.dark-mode .ocr-confidence-control input[type='range'] {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+}
+.dark-mode .ocr-confidence-control input[type='range']::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 2px solid #1d2522;
+  border-radius: 50%;
+  background: #78bba7;
+  box-shadow: 0 0 0 1px #78bba7;
+}
+.dark-mode .ocr-confidence-control input[type='range']::-moz-range-track {
+  height: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: #3a4742;
+}
+.dark-mode .ocr-confidence-control input[type='range']::-moz-range-progress {
+  height: 4px;
+  border-radius: 4px;
+  background: #67ad99;
+}
+.dark-mode .ocr-confidence-control input[type='range']::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 2px solid #1d2522;
+  border-radius: 50%;
+  background: #78bba7;
 }
 .ocr-layout-toggle {
   height: auto !important;
