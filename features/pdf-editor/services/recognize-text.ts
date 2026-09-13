@@ -3,6 +3,8 @@ import type { EditorState } from '../hooks/use-editor-state';
 import { hexChannels } from '../lib/appearance';
 import { browserFontFamily, cleanPdfFontName, closestStandardFont } from '../lib/fonts';
 import { detectScannedLines } from '../lib/pdf-geometry';
+import { splitOcrLine } from '../lib/ocr-layout';
+import { detectOcrImages, insideOcrImage } from '../lib/ocr-images';
 import type { AddedTextBox, SelectedElementRef, TextAlignment } from '../types';
 
 type Context = Pick<
@@ -16,6 +18,7 @@ type Context = Pick<
   | 'setSelectedElements'
   | 'setSelectedForm'
   | 'setAddedBoxes'
+  | 'setImageCaptures'
   | 'setSelectedVectorId'
   | 'setSelectedImage'
   | 'setSelectedAddedId'
@@ -45,6 +48,7 @@ export async function recognizeText(
     setSelectedElements,
     setSelectedForm,
     setAddedBoxes,
+    setImageCaptures,
     setSelectedVectorId,
     setSelectedImage,
     setSelectedAddedId,
@@ -100,14 +104,64 @@ export async function recognizeText(
     }
     setOcrStatus('Recognizing text locally…');
     const result = await ocrWorkerRef.current.recognize(source, {}, { blocks: true, text: true });
-    const lines = (result.data.blocks || [])
+    let lines = (result.data.blocks || [])
       .flatMap((block: any) =>
         (block.paragraphs || []).flatMap((paragraph: any) =>
           (paragraph.lines || []).map((line: any) => ({ ...line, layoutBBox: paragraph.bbox || block.bbox })),
         ),
       )
       .filter((line: any) => line.text?.trim() && line.bbox);
-    if (!lines.length) {
+    const imageRegions = (() => {
+      if (!ocrRecognizeLayout) return [];
+      const scale = Math.min(1, 1000 / source.width);
+      const analysis = document.createElement('canvas');
+      analysis.width = Math.ceil(source.width * scale);
+      analysis.height = Math.ceil(source.height * scale);
+      const analysisContext = analysis.getContext('2d', { willReadFrequently: true });
+      if (!analysisContext) return [];
+      analysisContext.drawImage(source, 0, 0, analysis.width, analysis.height);
+      const bounds = lines.flatMap((line: any) =>
+        (line.words || []).map((word: any) => ({
+          x0: word.bbox.x0 * scale,
+          y0: word.bbox.y0 * scale,
+          x1: word.bbox.x1 * scale,
+          y1: word.bbox.y1 * scale,
+        })),
+      );
+      return detectOcrImages(
+        analysisContext.getImageData(0, 0, analysis.width, analysis.height).data,
+        analysis.width,
+        analysis.height,
+        bounds,
+      ).map((box) => ({
+        x0: box.x0 / scale,
+        y0: box.y0 / scale,
+        x1: box.x1 / scale,
+        y1: box.y1 / scale,
+      }));
+    })();
+    lines = lines.flatMap((line: any) => {
+      if (imageRegions.some((image) => insideOcrImage(line.bbox, image))) return [];
+      const words = (line.words || []).filter(
+        (word: any) => !imageRegions.some((image) => insideOcrImage(word.bbox, image)),
+      );
+      if (!line.words?.length || words.length === line.words.length) return [line];
+      if (!words.length) return [];
+      return [
+        {
+          ...line,
+          words,
+          text: words.map((word: any) => word.text).join(' '),
+          bbox: {
+            x0: Math.min(...words.map((word: any) => word.bbox.x0)),
+            y0: Math.min(...words.map((word: any) => word.bbox.y0)),
+            x1: Math.max(...words.map((word: any) => word.bbox.x1)),
+            y1: Math.max(...words.map((word: any) => word.bbox.y1)),
+          },
+        },
+      ];
+    });
+    if (!lines.length && !imageRegions.length) {
       setOcrStatus('No text was detected');
       setToast('No readable text was found in that area');
       window.setTimeout(() => setToast(''), 2600);
@@ -298,12 +352,58 @@ export async function recognizeText(
     const originX = region?.x || 0;
     const originTop = region?.top || 0;
     const stamp = Date.now();
+    const detectedImages = imageRegions.map((box, index) => ({
+      id: `ocr-image-${stamp}-${index}`,
+      x: originX + box.x0 / renderScale,
+      top: originTop + box.y0 / renderScale,
+      width: (box.x1 - box.x0) / renderScale,
+      height: (box.y1 - box.y0) / renderScale,
+    }));
+    const captures: Record<string, string> = {};
+    detectedImages.forEach((image, index) => {
+      const box = imageRegions[index];
+      const crop = document.createElement('canvas');
+      crop.width = Math.ceil(box.x1 - box.x0);
+      crop.height = Math.ceil(box.y1 - box.y0);
+      crop
+        .getContext('2d')
+        ?.drawImage(source, box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0, 0, 0, crop.width, crop.height);
+      captures[`${currentPage}:${image.id}`] = crop.toDataURL('image/png');
+    });
+    const newImages = detectedImages.filter(
+      (image) =>
+        !pageInfo.images.some(
+          (existing) =>
+            existing.id.startsWith('ocr-image-') &&
+            Math.abs(existing.x - image.x) < 3 &&
+            Math.abs(existing.top - image.top) < 3 &&
+            Math.abs(existing.width - image.width) < 6 &&
+            Math.abs(existing.height - image.height) < 6,
+        ),
+    );
     const detectedVectors = ocrRecognizeLayout
-      ? detectScannedLines(source, renderScale, originX, originTop, stamp)
+      ? detectScannedLines(source, renderScale, originX, originTop, stamp).filter(
+          (vector) =>
+            !detectedImages.some((image) =>
+              insideOcrImage(
+                { x0: vector.x, y0: vector.top, x1: vector.x + vector.width, y1: vector.top + vector.height },
+                { x0: image.x, y0: image.top, x1: image.x + image.width, y1: image.top + image.height },
+              ),
+            ),
+        )
       : [];
     const detectedRectangles = detectedVectors.filter((vector) => vector.kind === 'rectangle');
     const ocrMeasureContext = document.createElement('canvas').getContext('2d');
-    const boxes: AddedTextBox[] = lines.map((line: any, index: number) => {
+    const textRuns = lines.flatMap((line: any) =>
+      splitOcrLine(line, (word) => {
+        const background = sampleBackground(word.bbox);
+        return {
+          color: sampleTextColor(word.bbox, background),
+          ...detectTextAppearance({ words: [word] }, background),
+        };
+      }),
+    );
+    const boxes: AddedTextBox[] = textRuns.map((line: any, index: number) => {
       const width = Math.max(4, (line.bbox.x1 - line.bbox.x0) / renderScale);
       const height = Math.max(7, (line.bbox.y1 - line.bbox.y0) / renderScale);
       const detectedFontName = cleanPdfFontName(
@@ -406,29 +506,37 @@ export async function recognizeText(
     });
     recordHistory();
     setAddedBoxes((items) => [...items, ...boxes]);
-    if (detectedVectors.length)
+    if (detectedImages.length) setImageCaptures((items) => ({ ...items, ...captures }));
+    if (detectedVectors.length || detectedImages.length)
       setPages((items) =>
         items.map((page, index) =>
-          index === currentPage ? { ...page, vectors: [...page.vectors, ...detectedVectors] } : page,
+          index === currentPage
+            ? {
+                ...page,
+                vectors: [...page.vectors, ...detectedVectors],
+                images: [...page.images, ...newImages],
+              }
+            : page,
         ),
       );
     const refs: SelectedElementRef[] = [
       ...boxes.map((box) => ({ page: currentPage, kind: 'added-text' as const, id: box.id })),
       ...detectedVectors.map((vector) => ({ page: currentPage, kind: 'vector' as const, id: vector.id })),
+      ...newImages.map((image) => ({ page: currentPage, kind: 'image' as const, id: image.id })),
     ];
     setSelectedElements(refs);
     setSelectedAddedId(boxes[boxes.length - 1]?.id || null);
     setSelected(null);
     setSelectedForm(null);
-    setSelectedImage(null);
+    setSelectedImage(!boxes.length && newImages.length ? { kind: 'existing', id: newImages[0].id } : null);
     setSelectedVectorId(null);
     setOcrStatus(
-      `Recognized ${boxes.length} text lines${detectedVectors.length ? ` and ${detectedVectors.length} layout lines` : ''}`,
+      `Recognized ${boxes.length} text boxes${detectedVectors.length ? ` and ${detectedVectors.length} layout lines` : ''}${detectedImages.length ? ` and ${detectedImages.length} images` : ''}`,
     );
     setOcrProgress(100);
     setTool('select');
     setToast(
-      `${boxes.length} text lines${detectedVectors.length ? ` + ${detectedVectors.length} table/shape lines` : ''} added`,
+      `${boxes.length} text boxes${detectedVectors.length ? ` + ${detectedVectors.length} table/shape lines` : ''}${detectedImages.length ? ` + ${detectedImages.length} images` : ''} added`,
     );
     window.setTimeout(() => setToast(''), 2800);
   } catch (reason) {

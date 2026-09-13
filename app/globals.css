@@ -6126,3 +6126,13 @@ select:not([multiple]) {
 .dark-mode .property-head button {
   color: #cbd7d2;
 }
+
+.page-actions { display: grid; gap: 6px; padding: 8px 10px 14px; }
+.page-actions button, .page-item-actions button { border: 1px solid var(--border, #c8d0cb); border-radius: 5px; background: var(--panel-bg, #fff); color: inherit; padding: 6px; cursor: pointer; font: inherit; font-size: 12px; }
+.page-actions button:disabled, .page-item-actions button:disabled { opacity: .4; cursor: default; }
+.page-actions small { font-size: 10px; line-height: 1.4; opacity: .7; }
+.page-item { margin-bottom: 12px; }
+.page-item.is-dragging { opacity: .45; }
+.page-item .thumbnail { margin-bottom: 4px; }
+.page-item-actions { display: flex; gap: 4px; justify-content: center; padding: 0 8px; }
+.dark-mode .page-actions button, .dark-mode .page-item-actions button { background: #26312b; border-color: #47544c; }

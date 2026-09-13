@@ -228,12 +228,21 @@ export type UploadedFont = {
 };
 
 export type EditorHistorySnapshot = {
+  pageSource?: {
+    pdf: any;
+    bytes: Uint8Array;
+    pages: PageInfo[];
+    currentPage: number;
+    imageCaptures: Record<string, string>;
+    blockVisuals: Record<string, { background: string; color: string }>;
+  };
   edits: EditMap;
   formChanges: FormValueMap;
   formEdits: Record<string, FormEdit>;
   formBackgrounds: Record<string, string>;
   pageForms: FormBlock[][];
   pageVectors: VectorBlock[][];
+  pageImages?: ImageBlock[][];
   addedBoxes: AddedTextBox[];
   addedImages: AddedImage[];
   imageEdits: Record<string, ImageEdit>;

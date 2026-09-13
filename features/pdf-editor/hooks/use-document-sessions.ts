@@ -295,6 +295,7 @@ export function useDocumentSessions({
     const session = documentSessionsRef.current.get(id);
     if (!session) return;
     const dirty =
+      session.past.length > 0 ||
       session.xfaChanged ||
       Object.keys(session.edits).length > 0 ||
       Object.keys(session.formChanges).length > 0 ||
@@ -363,20 +364,22 @@ export function useDocumentSessions({
     setTool('select');
   };
 
-  const openFile = async (file?: File) => {
+  const openFile = async (file?: File, options?: { prepareOnly?: boolean }) => {
     if (!file) return;
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
       setError('Please choose a PDF document.');
       return;
     }
-    saveActiveDocument();
-    setLoading(true);
-    setError('');
-    setSelectedElements([]);
-    setSelected(null);
-    setSelectedForm(null);
-    setSelectedAddedId(null);
-    setFontWarnings([]);
+    if (!options?.prepareOnly) saveActiveDocument();
+    if (!options?.prepareOnly) {
+      setLoading(true);
+      setError('');
+      setSelectedElements([]);
+      setSelected(null);
+      setSelectedForm(null);
+      setSelectedAddedId(null);
+      setFontWarnings([]);
+    }
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const pdfjs = await import('pdfjs-dist');
@@ -550,30 +553,32 @@ export function useDocumentSessions({
           vectors: extractPdfVectors(pdfjs, viewport, operatorList),
         });
       }
-      pdfRef.current = pdf;
-      setPdfBytes(bytes);
-      setIsXfaDocument(pureXfa);
-      setXfaChanged(false);
-      setXfaFields({});
-      setXfaStructureEdits({});
-      setXfaDraws({});
-      setXfaDrawEdits({});
-      setSelectedXfaDrawKey(null);
-      setXfaScriptMetadata(scriptMetadata);
-      setXfaTemplateModel(templateModel);
-      setLiveXfaScripts(false);
-      setXfaRuntimeStatus('Live scripts are off');
-      xfaLiveValuesRef.current = {};
-      setSelectedXfaKey(null);
-      setPages(pageInfo);
       const warnings = collectFontWarnings(pageInfo);
-      setFontWarnings(warnings);
-      if (pureXfa) {
-        setToast('XFA form detected · Interactive fields are ready');
-        setTimeout(() => setToast(''), 3200);
-      } else if (warnings.length) {
-        setToast(`${warnings.length} unsupported PDF font${warnings.length === 1 ? '' : 's'} detected`);
-        setTimeout(() => setToast(''), 3200);
+      if (!options?.prepareOnly) {
+        pdfRef.current = pdf;
+        setPdfBytes(bytes);
+        setIsXfaDocument(pureXfa);
+        setXfaChanged(false);
+        setXfaFields({});
+        setXfaStructureEdits({});
+        setXfaDraws({});
+        setXfaDrawEdits({});
+        setSelectedXfaDrawKey(null);
+        setXfaScriptMetadata(scriptMetadata);
+        setXfaTemplateModel(templateModel);
+        setLiveXfaScripts(false);
+        setXfaRuntimeStatus('Live scripts are off');
+        xfaLiveValuesRef.current = {};
+        setSelectedXfaKey(null);
+        setPages(pageInfo);
+        setFontWarnings(warnings);
+        if (pureXfa) {
+          setToast('XFA form detected · Interactive fields are ready');
+          setTimeout(() => setToast(''), 3200);
+        } else if (warnings.length) {
+          setToast(`${warnings.length} unsupported PDF font${warnings.length === 1 ? '' : 's'} detected`);
+          setTimeout(() => setToast(''), 3200);
+        }
       }
       const openedName = file.name.replace(/\.pdf$/i, '');
       const documentId =
@@ -614,6 +619,7 @@ export function useDocumentSessions({
         blockVisuals: {},
         fontWarnings: warnings,
       };
+      if (options?.prepareOnly) return session;
       documentSessionsRef.current.set(documentId, session);
       setDocumentTabs((tabs) => [
         ...tabs,
@@ -639,13 +645,21 @@ export function useDocumentSessions({
       setTool('select');
       setZoom(1);
     } catch (reason) {
+      if (options?.prepareOnly) throw reason;
       console.error(reason);
       setError('We could not open that PDF. It may be encrypted or damaged.');
     } finally {
-      setLoading(false);
-      if (uploadRef.current) uploadRef.current.value = '';
+      if (!options?.prepareOnly) {
+        setLoading(false);
+        if (uploadRef.current) uploadRef.current.value = '';
+      }
     }
   };
 
-  return { switchDocument, closeDocument, openFile };
+  return {
+    switchDocument,
+    closeDocument,
+    openFile,
+    prepareDocument: (file: File) => openFile(file, { prepareOnly: true }),
+  };
 }

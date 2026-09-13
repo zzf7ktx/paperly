@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { AddedTextBox, PageInfo, PagePreviewShape } from '../types';
 
@@ -21,6 +21,48 @@ export function PdfThumbnail({
   active: boolean;
   onClick: () => void;
 }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [rendered, setRendered] = useState(false);
+  const pdfDocument = pdfRef.current;
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (isXfa || !canvas || !pdfDocument) return;
+    let cancelled = false;
+    let task: any;
+    setRendered(false);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        void (async () => {
+          const pdfPage = await pdfDocument.getPage(index + 1);
+          if (cancelled) return;
+          const viewport = pdfPage.getViewport({ scale: Math.min(300 / page.width, 380 / page.height) });
+          const staging = document.createElement('canvas');
+          staging.width = Math.ceil(viewport.width);
+          staging.height = Math.ceil(viewport.height);
+          const context = staging.getContext('2d');
+          if (!context) return;
+        task = pdfPage.render({ canvas: staging, canvasContext: context, viewport, annotationMode: 0 });
+          await task.promise;
+          if (cancelled) return;
+          canvas.width = staging.width;
+          canvas.height = staging.height;
+          canvas.getContext('2d')?.drawImage(staging, 0, 0);
+          setRendered(true);
+        })().catch(() => {
+          /* Keep the geometry preview if rendering fails. */
+        });
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(canvas);
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+      task?.cancel?.();
+    };
+  }, [pdfDocument, index, page, isXfa]);
   const [xfaShapes, setXfaShapes] = useState<PagePreviewShape[]>([]);
   useEffect(() => {
     const pdf = pdfRef.current;
@@ -126,6 +168,13 @@ export function PdfThumbnail({
         className="mini-page actual page-layout-preview"
         style={{ aspectRatio: `${page.width} / ${page.height}` }}
       >
+        {!isXfa && (
+          <canvas
+            ref={canvasRef}
+            className={`thumbnail-canvas ${rendered ? 'is-ready' : ''}`}
+            aria-hidden="true"
+          />
+        )}
         {imageShapes.map((image) => (
           <span
             key={`image-${image.id}`}

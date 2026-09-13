@@ -17,6 +17,7 @@ import { useElementDrag } from './use-element-drag';
 import { useTextEditing } from './use-text-editing';
 
 import { useDocumentSessions } from './use-document-sessions';
+import { usePageManagement } from './use-page-management';
 
 import { useXfaRendering } from './use-xfa-rendering';
 
@@ -280,7 +281,9 @@ export function usePdfEditor() {
 
   useXfaRendering({ ...state });
 
-  const { switchDocument, closeDocument, openFile } = useDocumentSessions({ ...state });
+  const { switchDocument, closeDocument, openFile, prepareDocument } = useDocumentSessions({ ...state });
+  const { changePages, insertPdfFiles, copyPageToTab } = usePageManagement(state, prepareDocument, recordHistory,
+    () => exportDocument({ ...state, vectorBackgroundForText }, { bytesOnly: true }));
 
   const {
     commit,
@@ -839,6 +842,9 @@ export function usePdfEditor() {
     resizePanelWithKeyboard,
     startPanelResize,
     switchDocument,
+    changePages,
+    insertPdfFiles,
+    copyPageToTab,
     closeDocument,
     openFile,
     commit,

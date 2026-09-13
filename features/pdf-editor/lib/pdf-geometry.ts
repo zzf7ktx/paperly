@@ -1,3 +1,4 @@
+import { detectScannedShapes } from './scanned-shapes';
 import { FORM_APPEARANCE_PADDING } from '../constants';
 import type {
   FormBackdropPrimitive,
@@ -166,186 +167,16 @@ export function detectScannedLines(
 ): VectorBlock[] {
   const context = canvas.getContext('2d', { willReadFrequently: true });
   if (!context) return [];
-  const { width, height } = canvas;
-  const pixels = context.getImageData(0, 0, width, height).data;
-  const luminance = (x: number, y: number) => {
-    const offset = (y * width + x) * 4;
-    return pixels[offset] * 0.299 + pixels[offset + 1] * 0.587 + pixels[offset + 2] * 0.114;
-  };
-  const lightSamples: number[] = [];
-  for (let y = 0; y < height; y += Math.max(4, Math.floor(height / 100)))
-    for (let x = 0; x < width; x += Math.max(4, Math.floor(width / 100))) lightSamples.push(luminance(x, y));
-  lightSamples.sort((a, b) => a - b);
-  const pageLight = lightSamples[Math.floor(lightSamples.length * 0.82)] || 255;
-  const inkThreshold = Math.max(145, pageLight - 28);
-  const dark = (x: number, y: number) => {
-    const offset = (y * width + x) * 4;
-    return pixels[offset + 3] > 180 && luminance(x, y) < inkThreshold;
-  };
-  const colorAt = (x: number, y: number) => {
-    const offset =
-      (Math.max(0, Math.min(height - 1, Math.round(y))) * width +
-        Math.max(0, Math.min(width - 1, Math.round(x)))) *
-      4;
-    return `#${[pixels[offset], pixels[offset + 1], pixels[offset + 2]].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
-  };
-  const dominantInteriorColor = (x: number, top: number, regionWidth: number, regionHeight: number) => {
-    const colors = new Map<string, { count: number; red: number; green: number; blue: number }>();
-    const insetX = Math.max(2, Math.round(regionWidth * 0.04));
-    const insetY = Math.max(2, Math.round(regionHeight * 0.15));
-    const step = Math.max(1, Math.floor(Math.min(regionWidth, regionHeight) / 24));
-    for (let py = Math.round(top + insetY); py < top + regionHeight - insetY; py += step)
-      for (let px = Math.round(x + insetX); px < x + regionWidth - insetX; px += step) {
-        const offset =
-          (Math.max(0, Math.min(height - 1, py)) * width + Math.max(0, Math.min(width - 1, px))) * 4;
-        if (pixels[offset + 3] < 180 || luminance(px, py) < inkThreshold) continue;
-        const bucket = `${pixels[offset] >> 3}:${pixels[offset + 1] >> 3}:${pixels[offset + 2] >> 3}`;
-        const entry = colors.get(bucket) || { count: 0, red: 0, green: 0, blue: 0 };
-        entry.count += 1;
-        entry.red += pixels[offset];
-        entry.green += pixels[offset + 1];
-        entry.blue += pixels[offset + 2];
-        colors.set(bucket, entry);
-      }
-    const dominant = [...colors.values()].sort((a, b) => b.count - a.count)[0];
-    if (!dominant) return colorAt(x + regionWidth / 2, top + regionHeight / 2);
-    return `#${[dominant.red, dominant.green, dominant.blue]
-      .map((sum) =>
-        Math.round(sum / dominant.count)
-          .toString(16)
-          .padStart(2, '0'),
-      )
-      .join('')}`;
-  };
-  const segments: Array<{ horizontal: boolean; start: number; fixed: number; length: number }> = [];
-  const scan = (horizontal: boolean) => {
-    const fixedLimit = horizontal ? height : width;
-    const movingLimit = horizontal ? width : height;
-    const minimum = Math.max(32, Math.round(movingLimit * 0.075));
-    for (let fixed = 0; fixed < fixedLimit; fixed += 1) {
-      let start = -1;
-      let gap = 0;
-      for (let moving = 0; moving <= movingLimit; moving += 1) {
-        const ink = moving < movingLimit && (horizontal ? dark(moving, fixed) : dark(fixed, moving));
-        if (ink) {
-          if (start < 0) start = moving;
-          gap = 0;
-          continue;
-        }
-        if (start >= 0 && gap < 2 && moving < movingLimit) {
-          gap += 1;
-          continue;
-        }
-        if (start >= 0 && moving - gap - start >= minimum)
-          segments.push({ horizontal, start, fixed, length: moving - gap - start });
-        start = -1;
-        gap = 0;
-      }
-    }
-  };
-  scan(true);
-  scan(false);
-  const merged: typeof segments = [];
-  segments
-    .sort((a, b) => Number(a.horizontal) - Number(b.horizontal) || a.fixed - b.fixed || a.start - b.start)
-    .forEach((segment) => {
-      const prior = merged[merged.length - 1];
-      if (
-        prior &&
-        prior.horizontal === segment.horizontal &&
-        segment.fixed - prior.fixed <= 2 &&
-        Math.abs(segment.start - prior.start) <= 4 &&
-        Math.abs(segment.length - prior.length) <= 8
-      ) {
-        prior.fixed = (prior.fixed + segment.fixed) / 2;
-        prior.start = Math.min(prior.start, segment.start);
-        prior.length = Math.max(prior.length, segment.length);
-      } else merged.push({ ...segment });
-    });
-  const used = new Set<number>();
-  const rectangles: VectorBlock[] = [];
-  const horizontal = merged
-    .map((segment, index) => ({ segment, index }))
-    .filter(({ segment }) => segment.horizontal);
-  horizontal.forEach(({ segment: topEdge, index: topIndex }) => {
-    if (used.has(topIndex) || topEdge.length < Math.max(40, width * 0.08)) return;
-    const match = horizontal.find(
-      ({ segment: bottomEdge, index: bottomIndex }) =>
-        bottomIndex !== topIndex &&
-        !used.has(bottomIndex) &&
-        bottomEdge.fixed > topEdge.fixed + 4 &&
-        bottomEdge.fixed - topEdge.fixed < height * 0.45 &&
-        Math.abs(bottomEdge.start - topEdge.start) <= 5 &&
-        Math.abs(bottomEdge.length - topEdge.length) <= 10,
-    );
-    if (!match) return;
-    const bottomEdge = match.segment;
-    const right = topEdge.start + topEdge.length;
-    const verticalCoverage = (x: number) => {
-      let ink = 0;
-      const span = Math.max(1, Math.round(bottomEdge.fixed - topEdge.fixed));
-      for (let y = Math.round(topEdge.fixed); y <= Math.round(bottomEdge.fixed); y += 1)
-        if ([x - 1, x, x + 1].some((sampleX) => sampleX >= 0 && sampleX < width && dark(sampleX, y)))
-          ink += 1;
-      return ink / span;
-    };
-    if (verticalCoverage(Math.round(topEdge.start)) < 0.55 || verticalCoverage(Math.round(right)) < 0.55)
-      return;
-    used.add(topIndex);
-    used.add(match.index);
-    const x = originX + topEdge.start / scale;
-    const top = originTop + topEdge.fixed / scale;
-    const rectangleWidth = topEdge.length / scale;
-    const rectangleHeight = (bottomEdge.fixed - topEdge.fixed) / scale;
-    rectangles.push({
-      id: `ocr-rectangle-${stamp}-${rectangles.length}`,
-      kind: 'rectangle',
-      x,
-      top,
-      width: rectangleWidth,
-      height: rectangleHeight,
-      fill: dominantInteriorColor(
-        topEdge.start,
-        topEdge.fixed,
-        topEdge.length,
-        bottomEdge.fixed - topEdge.fixed,
-      ),
-      stroke: colorAt(topEdge.start, topEdge.fixed),
-      strokeWidth: Math.max(0.5, 1 / scale),
-      added: true,
-    });
-  });
-  const lines = merged.flatMap((segment, sourceIndex) => {
-    if (used.has(sourceIndex)) return [];
-    const x = originX + (segment.horizontal ? segment.start : segment.fixed) / scale;
-    const top = originTop + (segment.horizontal ? segment.fixed : segment.start) / scale;
-    const endX = originX + (segment.horizontal ? segment.start + segment.length : segment.fixed) / scale;
-    const endTop = originTop + (segment.horizontal ? segment.fixed : segment.start + segment.length) / scale;
-    return [
-      {
-        id: `ocr-line-${stamp}-${sourceIndex}`,
-        kind: 'line' as const,
-        x: Math.min(x, endX),
-        top: Math.min(top, endTop),
-        width: Math.max(0.5, Math.abs(endX - x)),
-        height: Math.max(0.5, Math.abs(endTop - top)),
-        fill: 'transparent',
-        stroke: colorAt(
-          segment.horizontal ? segment.start : segment.fixed,
-          segment.horizontal ? segment.fixed : segment.start,
-        ),
-        strokeWidth: Math.max(0.5, 1 / scale),
-        points: [
-          { x, top },
-          { x: endX, top: endTop },
-        ],
-        added: true,
-      },
-    ];
-  });
-  return [...rectangles, ...lines].slice(0, 240);
+  return detectScannedShapes(
+    context.getImageData(0, 0, canvas.width, canvas.height).data,
+    canvas.width,
+    canvas.height,
+    scale,
+    originX,
+    originTop,
+    stamp,
+  );
 }
-
 export function attachFormBackdrops(pdfjs: any, viewport: any, operatorList: any, forms: FormBlock[]) {
   const candidates: FormBackdropPrimitive[] = [];
   const seen = new Set<string>();

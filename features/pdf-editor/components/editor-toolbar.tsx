@@ -376,7 +376,7 @@ export function EditorToolbar({ editor }: Props) {
           >
             <span>
               <b>Recognize layout</b>
-              <small>Lines, shapes, and table grids</small>
+              <small>Images, logos, lines, and table grids</small>
             </span>
             <strong>{ocrRecognizeLayout ? 'On' : 'Off'}</strong>
           </button>

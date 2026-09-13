@@ -12,6 +12,7 @@ import { TextBoxControls } from './text-box-controls';
 import { needsFormCleanup, needsTextCleanup } from '../lib/appearance';
 import { browserFontFamily } from '../lib/fonts';
 import { formBackdropGeometry } from '../lib/pdf-geometry';
+import { ocrCoverRects } from '../lib/ocr-covers';
 import { blockKey } from '../lib/text';
 import type { PdfEditorController } from '../hooks/use-pdf-editor';
 
@@ -317,7 +318,8 @@ export function EditorCanvas({ editor }: Props) {
                   Object.keys(edit).some((property) => property !== 'deleted');
                 const selectedVector = selectedVectorId === vector.id;
                 const formOwnedVector = isFormOwnedVector(currentPage, vector);
-                const selectShape = (event: ReactPointerEvent<SVGElement>) => {
+                const selectShape = (event: ReactMouseEvent<SVGElement>) => {
+                  if (marqueeSuppressClickRef.current) return;
                   if (formOwnedVector || (!vector.added && !selectPdfShapes)) return;
                   if (!selectPdfShapes) event.stopPropagation();
                   if (moveShapeContents && !event.shiftKey) {
@@ -338,7 +340,7 @@ export function EditorCanvas({ editor }: Props) {
                 );
                 const common = {
                   className: selectableShape ? 'editable-vector' : undefined,
-                  onPointerDown: selectShape,
+                  onClick: selectShape,
                   style: {
                     pointerEvents: selectableShape ? ('all' as const) : ('none' as const),
                     cursor: selectableShape ? 'pointer' : 'default',
@@ -755,23 +757,26 @@ export function EditorCanvas({ editor }: Props) {
                         backgroundColor: box.ocrSource ? undefined : box.ocrBackground || undefined,
                       }}
                     >
-                      {box.ocrSource && (
-                        <span
-                          className="ocr-background-cover"
-                          aria-hidden="true"
-                          style={{
-                            left: ((box.ocrOriginalX ?? box.x) - box.x) * zoom,
-                            top: ((box.ocrOriginalTop ?? box.top) - box.top) * zoom,
-                            width: (box.ocrOriginalWidth ?? box.width) * zoom,
-                            height: (box.ocrOriginalHeight ?? box.height) * zoom,
-                            backgroundColor: box.ocrBackground || '#ffffff',
-                            backgroundImage: box.ocrBackgroundImage
-                              ? `url(${box.ocrBackgroundImage})`
-                              : undefined,
-                            backgroundSize: '100% 100%',
-                          }}
-                        />
-                      )}
+                      {box.ocrSource &&
+                        ocrCoverRects(box, pages[currentPage].vectors, vectorEdits).map((piece, index) => (
+                          <span
+                            key={index}
+                            className="ocr-background-cover"
+                            aria-hidden="true"
+                            style={{
+                              left: ((box.ocrOriginalX ?? box.x) - box.x + piece.x) * zoom,
+                              top: ((box.ocrOriginalTop ?? box.top) - box.top + piece.top) * zoom,
+                              width: piece.width * zoom,
+                              height: piece.height * zoom,
+                              backgroundColor: box.ocrBackground || '#ffffff',
+                              backgroundImage: box.ocrBackgroundImage
+                                ? `url(${box.ocrBackgroundImage})`
+                                : undefined,
+                              backgroundSize: `${(box.ocrOriginalWidth ?? box.width) * zoom}px ${(box.ocrOriginalHeight ?? box.height) * zoom}px`,
+                              backgroundPosition: `${-piece.x * zoom}px ${-piece.top * zoom}px`,
+                            }}
+                          />
+                        ))}
                       {isPrimary && (
                         <TextBoxControls
                           mode="local"

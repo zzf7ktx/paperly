@@ -8,6 +8,7 @@ import { hexChannels, needsFormCleanup, needsTextCleanup } from '../lib/appearan
 import { closestStandardFont, editableBlockFont, fontFamilyIdentity } from '../lib/fonts';
 import { formBackdropGeometry, formBackdropPrimitiveGeometry } from '../lib/pdf-geometry';
 import { wrapTextForWidth } from '../lib/text';
+import { ocrCoverRects } from '../lib/ocr-covers';
 import type { FormBlock, FormEdit, TextBlock } from '../types';
 
 type Context = Pick<
@@ -40,7 +41,8 @@ type Context = Pick<
 
 export async function exportDocument(
   context: Context & { vectorBackgroundForText: (pageIndex: number, block: TextBlock) => string | undefined },
-): Promise<void> {
+  options?: { bytesOnly?: boolean },
+): Promise<Uint8Array | undefined> {
   const { vectorBackgroundForText } = context;
   const {
     uploadRef,
@@ -70,13 +72,27 @@ export async function exportDocument(
   } = context;
 
   if (!pdfBytes) {
+    if (options?.bytesOnly) throw new Error('Open a PDF first.');
     uploadRef.current?.click();
     return;
   }
-  setLoading(true);
-  setError('');
+  if (!options?.bytesOnly) {
+    setLoading(true);
+    setError('');
+  }
   try {
-    const { PDFDocument, PDFHexString, PDFName, StandardFonts, rgb } = await import('pdf-lib');
+    const {
+      PDFDocument,
+      PDFHexString,
+      PDFName,
+      StandardFonts,
+      rgb,
+      pushGraphicsState,
+      popGraphicsState,
+      rectangle,
+      clip,
+      endPath,
+    } = await import('pdf-lib');
     let sourceBytes =
       isXfaDocument && pdfRef.current?.saveDocument ? await pdfRef.current.saveDocument() : pdfBytes.slice();
     if (isXfaDocument) {
@@ -658,6 +674,22 @@ export async function exportDocument(
         const eraseTop = box.ocrOriginalTop ?? box.top;
         const eraseWidth = box.ocrOriginalWidth ?? box.width;
         const eraseHeight = box.ocrOriginalHeight ?? box.height;
+        const pieces = ocrCoverRects(box, pages[box.page]?.vectors || [], vectorEdits);
+        page.pushOperators(pushGraphicsState());
+        // Clip both solid covers and reconstructed patches to the same areas used in the editor.
+        page.pushOperators(
+          ...pieces.map((piece) =>
+            rectangle(
+              eraseX + piece.x,
+              page.getHeight() - eraseTop - piece.top - piece.height,
+              piece.width,
+              piece.height,
+            ),
+          ),
+          ...(pieces.length ? [] : [rectangle(0, 0, 0, 0)]),
+          clip(),
+          endPath(),
+        );
         if (box.ocrBackgroundImage) {
           const backgroundPatch = await embedDataImage(box.ocrBackgroundImage);
           page.drawImage(backgroundPatch, {
@@ -669,13 +701,14 @@ export async function exportDocument(
         } else {
           const [red, green, blue] = hexChannels(box.ocrBackground || '#ffffff');
           page.drawRectangle({
-            x: Math.max(0, eraseX - 1),
-            y: Math.max(0, page.getHeight() - eraseTop - eraseHeight - 1),
-            width: eraseWidth + 2,
-            height: eraseHeight + 2,
+            x: eraseX,
+            y: page.getHeight() - eraseTop - eraseHeight,
+            width: eraseWidth,
+            height: eraseHeight,
             color: rgb(red, green, blue),
           });
         }
+        page.pushOperators(popGraphicsState());
       }
       const fontName = box.font || 'Helvetica';
       const syntheticOcrBold = Boolean(box.ocrSource && box.bold && box.ocrTextStroke);
@@ -748,6 +781,7 @@ export async function exportDocument(
       });
     }
     const output = await pdfDocument.save();
+    if (options?.bytesOnly) return output;
     const blob = new Blob([output as BlobPart], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -759,9 +793,10 @@ export async function exportDocument(
     setToast('Your edited PDF is ready');
     setTimeout(() => setToast(''), 2600);
   } catch (reason) {
+    if (options?.bytesOnly) throw reason;
     console.error(reason);
     setError('We could not export this PDF. Please try again.');
   } finally {
-    setLoading(false);
+    if (!options?.bytesOnly) setLoading(false);
   }
 }
