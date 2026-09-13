@@ -1,11 +1,12 @@
-name: Build apps
+name: Build and release apps
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  release:
+    types: [published]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-portable:
@@ -28,13 +29,15 @@ jobs:
       - name: Build portable app
         run: npm run build:portable
 
-      - name: Upload portable build
-        uses: actions/upload-artifact@v4
+      - name: Archive portable app
+        run: |
+          cd portable-build
+          zip -r ../paperly-portable.zip .
+
+      - name: Upload portable app to release
+        uses: softprops/action-gh-release@v2
         with:
-          name: portable-app
-          path: |
-            portable-build/**
-            !portable-build/**/*.map
+          files: paperly-portable.zip
 
   build-electron:
     name: Electron app
@@ -56,10 +59,9 @@ jobs:
       - name: Build Electron app
         run: npm run build:electron
 
-      - name: Upload Electron installer
-        uses: actions/upload-artifact@v4
+      - name: Upload Electron installer to release
+        uses: softprops/action-gh-release@v2
         with:
-          name: electron-app
-          path: |
-            electron-dist/**
-            !electron-dist/**/*.blockmap
+          files: |
+            electron-dist/*.exe
+            electron-dist/*.zip
