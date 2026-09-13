@@ -1,6 +1,6 @@
 {
   "name": "sites-project",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Paperly desktop and browser PDF editor",
   "private": true,
   "main": "electron/main.cjs",
