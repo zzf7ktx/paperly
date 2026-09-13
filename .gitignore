@@ -6,11 +6,13 @@ out/
 portable-build/
 electron-dist/
 build/
+.vinext/
 .wrangler/
 .npm-cache/
 *.tsbuildinfo
 test-results/
 playwright-report/
 *.log
+sample-page-rail.pdf
 .env*
 !.env.example
