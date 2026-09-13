@@ -1,10 +1,42 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
 let server;
 const localPort = 4174;
+
+function sendUpdateStatus(status, details = {}) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('paperly-update-status', { status, ...details });
+  }
+}
+
+function configureUpdater() {
+  if (!app.isPackaged) return;
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.on('checking-for-update', () => sendUpdateStatus('checking'));
+  autoUpdater.on('update-available', (info) => sendUpdateStatus('downloading', { version: info.version }));
+  autoUpdater.on('update-not-available', (info) => sendUpdateStatus('latest', { version: info.version }));
+  autoUpdater.on('download-progress', (progress) => {
+    sendUpdateStatus('downloading', { percent: Math.round(progress.percent) });
+  });
+  autoUpdater.on('update-downloaded', (info) => sendUpdateStatus('downloaded', { version: info.version }));
+  autoUpdater.on('error', (error) => {
+    console.error('Update error:', error);
+    sendUpdateStatus('error');
+  });
+
+  ipcMain.handle('paperly:check-for-updates', async () => {
+    await autoUpdater.checkForUpdates();
+  });
+  ipcMain.handle('paperly:install-update', () => {
+    autoUpdater.quitAndInstall();
+  });
+}
 
 const mimeTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -68,6 +100,7 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   });
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -83,7 +116,10 @@ async function createWindow() {
   await window.loadURL(localUrl);
 }
 
-app.whenReady().then(createWindow).catch((error) => {
+app.whenReady().then(async () => {
+  configureUpdater();
+  await createWindow();
+}).catch((error) => {
   console.error(error);
   app.quit();
 });

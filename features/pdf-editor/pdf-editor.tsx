@@ -4,12 +4,53 @@ import { EditorToolbar } from './components/editor-toolbar';
 import { PageRail } from './components/page-rail';
 import { PropertiesPanel } from './components/properties-panel';
 
-import { type CSSProperties } from 'react';
+import { type CSSProperties, useEffect, useState } from 'react';
 import { usePdfEditor } from './hooks/use-pdf-editor';
 import type { ThemeMode } from './types';
 
+const APP_VERSION = '0.1.0';
+const RELEASES_URL = 'https://github.com/zzf7ktx/paperly/releases';
+const RELEASES_API_URL = 'https://api.github.com/repos/zzf7ktx/paperly/releases/latest';
+
+type NativeUpdateStatus = {
+  status: 'checking' | 'downloading' | 'downloaded' | 'latest' | 'error';
+  version?: string;
+  percent?: number;
+};
+
+declare global {
+  interface Window {
+    paperlyUpdater?: {
+      check: () => Promise<void>;
+      install: () => Promise<void>;
+      onStatus: (listener: (status: NativeUpdateStatus) => void) => () => void;
+    };
+  }
+}
+
+function parseVersion(version: string) {
+  const cleaned = version.replace(/^v/i, '').trim();
+  const [major = '0', minor = '0', patch = '0'] = cleaned.split('.');
+  return [Number(major), Number(minor), Number(patch)];
+}
+
+function isNewerVersion(current: string, latest: string) {
+  const currentParts = parseVersion(current);
+  const latestParts = parseVersion(latest);
+
+  for (let index = 0; index < 3; index += 1) {
+    if (latestParts[index] > currentParts[index]) return true;
+    if (latestParts[index] < currentParts[index]) return false;
+  }
+
+  return false;
+}
+
 export default function PdfEditor() {
   const editor = usePdfEditor();
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'loading' | 'latest' | 'available' | 'downloading' | 'downloaded' | 'error'>('idle');
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const {
     uploadRef,
     documentTabs,
@@ -49,6 +90,18 @@ export default function PdfEditor() {
     redo,
     exportPdf,
   } = editor;
+
+  useEffect(() => {
+    const updater = window.paperlyUpdater;
+    if (!updater) return;
+
+    return updater.onStatus(({ status, version, percent }) => {
+      setUpdateStatus(status === 'checking' ? 'loading' : status);
+      if (version) setLatestVersion(version);
+      if (typeof percent === 'number') setDownloadProgress(percent);
+    });
+  }, []);
+
   const renderDocumentTabs = (combined = false) => (
     <nav className={`document-tabs ${combined ? 'combined' : ''}`} aria-label="Open PDF documents">
       <div className="document-tab-list">
@@ -146,6 +199,85 @@ export default function PdfEditor() {
               Open PDF
             </button>
           )}
+          <button
+            className="button secondary"
+            type="button"
+            onClick={async () => {
+              const nativeUpdater = window.paperlyUpdater;
+              if (nativeUpdater) {
+                if (updateStatus === 'downloaded') {
+                  await nativeUpdater.install();
+                  return;
+                }
+
+                setDownloadProgress(null);
+                setUpdateStatus('loading');
+                try {
+                  await nativeUpdater.check();
+                } catch {
+                  setUpdateStatus('error');
+                }
+                return;
+              }
+
+              setUpdateStatus('loading');
+              try {
+                const response = await fetch(RELEASES_API_URL, {
+                  headers: { Accept: 'application/vnd.github+json' },
+                });
+                if (!response.ok) throw new Error('Unable to check for updates.');
+                const data = (await response.json()) as {
+                  tag_name?: string;
+                  html_url?: string;
+                  assets?: Array<{ name?: string; browser_download_url?: string }>;
+                };
+                const tag = data.tag_name || 'v0.0.0';
+                const installerAsset =
+                  data.assets?.find((asset) => /\.exe$/i.test(asset.name || '')) ||
+                  data.assets?.[0];
+                const nextReleaseUrl = data.html_url || RELEASES_URL;
+
+                if (isNewerVersion(APP_VERSION, tag)) {
+                  setLatestVersion(tag);
+                  setUpdateStatus('available');
+
+                  const downloadUrl = installerAsset?.browser_download_url || nextReleaseUrl;
+                  const anchor = document.createElement('a');
+                  anchor.href = downloadUrl;
+                  anchor.target = '_blank';
+                  anchor.rel = 'noreferrer';
+                  anchor.download = installerAsset?.name || 'Paperly-Setup.exe';
+                  document.body.appendChild(anchor);
+                  anchor.click();
+                  document.body.removeChild(anchor);
+                  return;
+                }
+
+                setLatestVersion(tag);
+                setUpdateStatus('latest');
+                window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');
+              } catch {
+                setUpdateStatus('error');
+                window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');
+              }
+            }}
+            aria-label="Check for updates"
+            title={updateStatus === 'downloaded' ? 'Restart Paperly and install the downloaded update' : 'Check for updates'}
+          >
+            {updateStatus === 'loading'
+              ? 'Checking…'
+              : updateStatus === 'downloading'
+                ? `Downloading${downloadProgress === null ? '...' : ` ${downloadProgress}%`}`
+                : updateStatus === 'downloaded'
+                  ? `Install ${latestVersion ?? 'update'}`
+                  : updateStatus === 'available'
+                    ? `Update ${latestVersion ?? ''}`
+                    : updateStatus === 'latest'
+                      ? 'Up to date'
+                      : updateStatus === 'error'
+                        ? 'Try updates'
+                        : 'Check for updates'}
+          </button>
           <button
             className="button primary export-button"
             onClick={exportPdf}
