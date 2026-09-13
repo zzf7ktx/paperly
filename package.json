@@ -1,6 +1,6 @@
 {
   "name": "sites-project",
-  "version": "0.1.0",
+  "version": "1.0.3",
   "description": "Paperly desktop and browser PDF editor",
   "private": true,
   "main": "electron/main.cjs",
@@ -14,7 +14,8 @@
     "build": "npm run copy:ocr && npm run copy:pdf && vinext build",
     "build:portable": "npm run copy:ocr && npm run copy:pdf && vite build --config portable.vite.config.ts && node scripts/package-portable.cjs",
     "electron": "npm run build:portable && electron .",
-    "build:electron": "npm run build:portable && npm run build:icons && electron-builder --win nsis --publish onTag",
+    "build:electron": "npm run build:portable && npm run build:icons && electron-builder --win nsis --publish never",
+    "release:electron": "npm run build:portable && npm run build:icons && electron-builder --win nsis --publish always",
     "build:electron:dir": "npm run build:portable && npm run build:icons && electron-builder --dir",
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",

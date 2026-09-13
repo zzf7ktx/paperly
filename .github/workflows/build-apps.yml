@@ -57,6 +57,6 @@ jobs:
         run: npm ci
 
       - name: Build Electron app
-        run: npm run build:electron
+        run: npm run release:electron
         env:
           GH_TOKEN: ${{ github.token }}
