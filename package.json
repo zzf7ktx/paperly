@@ -89,7 +89,8 @@
       {
         "provider": "github",
         "owner": "zzf7ktx",
-        "repo": "paperly"
+        "repo": "paperly",
+        "releaseType": "release"
       }
     ],
     "nsis": {
