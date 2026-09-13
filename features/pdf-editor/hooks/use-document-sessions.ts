@@ -381,7 +381,11 @@ export function useDocumentSessions({
       const bytes = new Uint8Array(await file.arrayBuffer());
       const pdfjs = await import('pdfjs-dist');
       pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-      const pdf = await pdfjs.getDocument({ data: bytes.slice(), enableXfa: true }).promise;
+      const pdf = await pdfjs.getDocument({
+        data: bytes.slice(),
+        enableXfa: true,
+        wasmUrl: new URL('pdfjs/wasm/', document.baseURI).href,
+      }).promise;
       const pureXfa = Boolean(pdf.isPureXfa);
       let scriptMetadata: Record<string, XfaScriptMetadata> = {};
       let templateModel: XfaTemplateModel = { nodes: [], fields: [], draws: [], regions: [], warnings: [] };

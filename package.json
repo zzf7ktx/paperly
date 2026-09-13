@@ -9,9 +9,10 @@
   },
   "scripts": {
     "copy:ocr": "node scripts/copy-ocr-assets.cjs",
-    "dev": "npm run copy:ocr && vinext dev",
-    "build": "npm run copy:ocr && vinext build",
-    "build:portable": "npm run copy:ocr && vite build --config portable.vite.config.ts && node scripts/package-portable.cjs",
+    "copy:pdf": "node scripts/copy-pdf-assets.cjs",
+    "dev": "npm run copy:ocr && npm run copy:pdf && vinext dev",
+    "build": "npm run copy:ocr && npm run copy:pdf && vinext build",
+    "build:portable": "npm run copy:ocr && npm run copy:pdf && vite build --config portable.vite.config.ts && node scripts/package-portable.cjs",
     "electron": "npm run build:portable && electron .",
     "build:electron": "npm run build:portable && npm run build:icons && electron-builder --win nsis",
     "build:electron:dir": "npm run build:portable && npm run build:icons && electron-builder --dir",

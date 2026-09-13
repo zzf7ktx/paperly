@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { EditorState } from './use-editor-state';
 
 type Context = Pick<
@@ -8,9 +8,36 @@ type Context = Pick<
   | 'setCombineTitleAndTabs'
   | 'setJoinSplitCharacters'
   | 'setHideScrollbars'
+  | 'setLeftPanelWidth'
+  | 'setRightPanelWidth'
+  | 'setLeftPanelCollapsed'
+  | 'setRightPanelCollapsed'
+  | 'setPropertyPanelMode'
+  | 'setFitMode'
+  | 'setZoom'
+  | 'setSnapEnabled'
+  | 'setSnapMode'
+  | 'setSnapAnchor'
+  | 'setShowDeletedLabels'
+  | 'setOcrConfidenceThreshold'
+  | 'setOcrRecognizeLayout'
   | 'setThemeMode'
   | 'setSystemDarkMode'
   | 'themeMode'
+  | 'combineTitleAndTabs'
+  | 'leftPanelWidth'
+  | 'rightPanelWidth'
+  | 'leftPanelCollapsed'
+  | 'rightPanelCollapsed'
+  | 'propertyPanelMode'
+  | 'fitMode'
+  | 'zoom'
+  | 'snapEnabled'
+  | 'snapMode'
+  | 'snapAnchor'
+  | 'showDeletedLabels'
+  | 'ocrConfidenceThreshold'
+  | 'ocrRecognizeLayout'
   | 'systemDarkMode'
   | 'ocrWorkerRef'
   | 'selectedElements'
@@ -34,12 +61,39 @@ type Context = Pick<
 > & {};
 
 export function useEditorPreferences({
+  combineTitleAndTabs,
   setCombineTitleAndTabs,
   setJoinSplitCharacters,
   setHideScrollbars,
+  setLeftPanelWidth,
+  setRightPanelWidth,
+  setLeftPanelCollapsed,
+  setRightPanelCollapsed,
+  setPropertyPanelMode,
+  setFitMode,
+  setZoom,
+  setSnapEnabled,
+  setSnapMode,
+  setSnapAnchor,
+  setShowDeletedLabels,
+  setOcrConfidenceThreshold,
+  setOcrRecognizeLayout,
   setThemeMode,
   setSystemDarkMode,
   themeMode,
+  leftPanelWidth,
+  rightPanelWidth,
+  leftPanelCollapsed,
+  rightPanelCollapsed,
+  propertyPanelMode,
+  fitMode,
+  zoom,
+  snapEnabled,
+  snapMode,
+  snapAnchor,
+  showDeletedLabels,
+  ocrConfidenceThreshold,
+  ocrRecognizeLayout,
   systemDarkMode,
   ocrWorkerRef,
   selectedElements,
@@ -61,18 +115,82 @@ export function useEditorPreferences({
   setSelectedAddedId,
   setSelectedImage,
 }: Context) {
+  const preferencesLoaded = useRef(false);
   useEffect(() => {
     try {
       setCombineTitleAndTabs(window.localStorage.getItem('paperly-combine-title-tabs') === 'true');
       setJoinSplitCharacters(window.localStorage.getItem('paperly-join-split-characters') !== 'false');
       setHideScrollbars(window.localStorage.getItem('paperly-hide-scrollbars') === 'true');
+      const number = (key: string, fallback: number, min: number, max: number) => {
+        const value = Number(window.localStorage.getItem(key));
+        return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
+      };
+      setLeftPanelWidth(number('paperly-left-panel-width', 164, 120, 340));
+      setRightPanelWidth(number('paperly-right-panel-width', 300, 250, 520));
+      setLeftPanelCollapsed(window.localStorage.getItem('paperly-left-panel-collapsed') === 'true');
+      setRightPanelCollapsed(window.localStorage.getItem('paperly-right-panel-collapsed') === 'true');
+      const storedPropertyMode = window.localStorage.getItem('paperly-property-panel-mode');
+      if (storedPropertyMode === 'layout' || storedPropertyMode === 'style' || storedPropertyMode === 'advanced')
+        setPropertyPanelMode(storedPropertyMode);
+      const storedFit = window.localStorage.getItem('paperly-fit-mode');
+      if (storedFit === 'manual' || storedFit === 'width' || storedFit === 'content') setFitMode(storedFit);
+      setZoom(number('paperly-zoom', 1, 0.25, 4));
+      setSnapEnabled(window.localStorage.getItem('paperly-snap-enabled') !== 'false');
+      const storedSnapMode = window.localStorage.getItem('paperly-snap-mode');
+      if (storedSnapMode === 'text' || storedSnapMode === 'box') setSnapMode(storedSnapMode);
+      const storedSnapAnchor = window.localStorage.getItem('paperly-snap-anchor');
+      if (storedSnapAnchor === 'start' || storedSnapAnchor === 'center' || storedSnapAnchor === 'end') setSnapAnchor(storedSnapAnchor);
+      setShowDeletedLabels(window.localStorage.getItem('paperly-show-deleted-labels') !== 'false');
+      setOcrConfidenceThreshold(number('paperly-ocr-confidence-threshold', 65, 30, 95));
+      setOcrRecognizeLayout(window.localStorage.getItem('paperly-ocr-recognize-layout') !== 'false');
       const storedTheme =
         window.localStorage.getItem('paperly-theme-mode') || window.localStorage.getItem('paperly-theme');
       setThemeMode(storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : 'system');
     } catch {
       /* local preferences are optional */
+    } finally {
+      preferencesLoaded.current = true;
     }
   }, []);
+  useEffect(() => {
+    if (!preferencesLoaded.current) return;
+    try {
+      const values: Record<string, string> = {
+        'paperly-left-panel-width': String(leftPanelWidth),
+        'paperly-right-panel-width': String(rightPanelWidth),
+        'paperly-left-panel-collapsed': String(leftPanelCollapsed),
+        'paperly-right-panel-collapsed': String(rightPanelCollapsed),
+        'paperly-combine-title-tabs': String(combineTitleAndTabs),
+        'paperly-property-panel-mode': propertyPanelMode,
+        'paperly-fit-mode': fitMode,
+        'paperly-zoom': String(zoom),
+        'paperly-snap-enabled': String(snapEnabled),
+        'paperly-snap-mode': snapMode,
+        'paperly-snap-anchor': snapAnchor,
+        'paperly-show-deleted-labels': String(showDeletedLabels),
+        'paperly-ocr-confidence-threshold': String(ocrConfidenceThreshold),
+        'paperly-ocr-recognize-layout': String(ocrRecognizeLayout),
+      };
+      for (const [key, value] of Object.entries(values)) window.localStorage.setItem(key, value);
+    } catch {
+      /* local preferences are optional */
+    }
+  }, [
+    combineTitleAndTabs,
+    fitMode,
+    leftPanelCollapsed,
+    leftPanelWidth,
+    ocrConfidenceThreshold,
+    ocrRecognizeLayout,
+    propertyPanelMode,
+    rightPanelCollapsed,
+    rightPanelWidth,
+    showDeletedLabels,
+    snapAnchor,
+    snapEnabled,
+    snapMode,
+    zoom,
+  ]);
   useEffect(() => {
     const preference = window.matchMedia('(prefers-color-scheme: dark)');
     const syncSystemTheme = () => setSystemDarkMode(preference.matches);

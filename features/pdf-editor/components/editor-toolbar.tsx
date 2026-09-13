@@ -1,5 +1,7 @@
 'use client';
 
+import { ColorPicker } from './color-picker';
+
 import { type CSSProperties } from 'react';
 import { type XfaFieldKind } from '../../../lib/xfa-template';
 import { PaperlySelect } from './paperly-select';
@@ -216,11 +218,11 @@ export function EditorToolbar({ editor }: Props) {
           </div>
           <label>
             Fill
-            <input type="color" value={drawFill} onChange={(event) => setDrawFill(event.target.value)} />
+            <ColorPicker aria-label="Fill color" value={drawFill} onChange={setDrawFill} />
           </label>
           <label>
             Stroke
-            <input type="color" value={drawStroke} onChange={(event) => setDrawStroke(event.target.value)} />
+            <ColorPicker aria-label="Stroke color" value={drawStroke} onChange={setDrawStroke} />
           </label>
           <label>
             Stroke width
@@ -466,13 +468,13 @@ export function EditorToolbar({ editor }: Props) {
                   background: activeAdded?.color || activeEdit?.color || activeVisual?.color || '#16302b',
                 }}
               />
-              <input
-                type="color"
+              <ColorPicker
+                aria-label="Text color"
                 value={activeAdded?.color || activeEdit?.color || activeVisual?.color || '#16302b'}
-                onChange={(event) =>
+                onChange={(color) =>
                   activeAdded
-                    ? updateAddedBox(activeAdded.id, { color: event.target.value })
-                    : activeKey && commit(activeKey, { color: event.target.value })
+                    ? updateAddedBox(activeAdded.id, { color: color })
+                    : activeKey && commit(activeKey, { color: color })
                 }
               />
             </label>

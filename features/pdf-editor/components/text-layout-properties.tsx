@@ -1,4 +1,6 @@
 'use client';
+
+import { ColorPicker } from './color-picker';
 import type { PdfEditorController } from '../hooks/use-pdf-editor';
 
 type Props = {
@@ -100,12 +102,9 @@ export function TextLayoutProperties({ editor }: Props) {
                 <span>Recognition confidence: {Math.round(activeAdded.ocrConfidence || 0)}%</span>
                 <label>
                   Cover original scan
-                  <input
-                    type="color"
+                  <ColorPicker
                     value={activeAdded.ocrBackground || '#ffffff'}
-                    onChange={(event) =>
-                      updateAddedBox(activeAdded.id, { ocrBackground: event.target.value })
-                    }
+                    onChange={(color) => updateAddedBox(activeAdded.id, { ocrBackground: color })}
                   />
                 </label>
               </div>

@@ -1,4 +1,6 @@
 'use client';
+
+import { ColorPicker } from './color-picker';
 import { PaperlySelect } from './paperly-select';
 import { fontOptions } from '../constants';
 import type { TextAlignment } from '../types';
@@ -83,12 +85,12 @@ export function BatchStyleProperties({ editor }: Props) {
             </label>
             <label>
               Color
-              <input
-                type="color"
+              <ColorPicker
+                aria-label="Selection text color"
                 value={batchColor}
-                onChange={(event) => {
-                  setBatchColor(event.target.value);
-                  applyBatchStyle({ color: event.target.value });
+                onChange={(color) => {
+                  setBatchColor(color);
+                  applyBatchStyle({ color: color });
                 }}
               />
             </label>

@@ -1,0 +1,345 @@
+.app-shell .paperly-color-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  width: 48px;
+  height: 28px;
+  padding: 4px 5px;
+  border: 1px solid #cdd6d0;
+  border-radius: 6px;
+  background: #fafbf8;
+  color: #64796d;
+  cursor: pointer;
+}
+.app-shell .paperly-color-trigger > span:first-child {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px #16302b24;
+}
+.app-shell .paperly-color-trigger .paperly-color-chevron {
+  display: block;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.app-shell .paperly-color-trigger:hover {
+  border-color: #438c76;
+  background: #edf4ed;
+}
+.app-shell .paperly-color-trigger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.app-shell .color-tool .paperly-color-trigger {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+}
+.app-shell .paperly-color-trigger:focus-visible {
+  outline: 2px solid #438c76;
+  outline-offset: 2px;
+  opacity: 1;
+}
+.dark-mode .paperly-color-trigger {
+  border-color: #40534a;
+  background: #202b25;
+  color: #b0c7ba;
+}
+.dark-mode .paperly-color-trigger:hover {
+  background: #293c32;
+}
+
+.paperly-color-popover {
+  --picker-bg: #fafbf7;
+  --picker-ink: #193c2d;
+  --picker-muted: #6a7c70;
+  --picker-border: #d3dfd3;
+  --picker-input: #ffffff;
+  --picker-focus: #438c76;
+  position: fixed;
+  z-index: 10000;
+  width: 256px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--picker-border);
+  border-radius: 12px;
+  background: var(--picker-bg);
+  color: var(--picker-ink);
+  box-shadow:
+    0 12px 34px #10291e26,
+    0 2px 8px #10291e12;
+  font:
+    11px/1.4 Arial,
+    Helvetica,
+    sans-serif;
+  outline: none;
+  color-scheme: light;
+}
+
+.paperly-color-control {
+  display: grid;
+  gap: 7px;
+}
+.app-shell .paperly-custom-palette {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: center;
+  justify-items: center;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid #cdd6d0;
+  border-radius: 7px;
+  background: #f7faf6;
+}
+.app-shell .paperly-custom-palette > :is(button, span) {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: 32px;
+  height: auto;
+  aspect-ratio: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid #b9c9bf;
+  border-radius: 50%;
+  color: #43816a;
+}
+.app-shell .paperly-custom-empty,
+.app-shell .paperly-custom-add {
+  background: transparent;
+}
+.app-shell .paperly-custom-palette > button {
+  cursor: pointer;
+}
+.app-shell .paperly-custom-palette > button.paperly-custom-swatch {
+  background-color: var(--custom-swatch-color, #16302b) !important;
+}
+.app-shell .paperly-custom-palette > button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.app-shell .paperly-custom-palette > button:is(:hover, :focus-visible, [aria-pressed='true']) {
+  outline: 2px solid #438c76;
+  outline-offset: 2px;
+}
+.paperly-custom-add svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+.dark-mode .paperly-custom-palette {
+  border-color: #40534a;
+  background: #202b25;
+}
+.dark-mode .paperly-custom-palette > :is(button, span) {
+  border-color: #43594d;
+  color: #abd0ba;
+}
+.paperly-color-dark {
+  --picker-bg: #1d2921;
+  --picker-ink: #e4eee5;
+  --picker-muted: #93ad9d;
+  --picker-border: #3e5445;
+  --picker-input: #152019;
+  --picker-focus: #8cbea2;
+  box-shadow:
+    0 16px 40px #0006,
+    0 2px 8px #0003;
+  color-scheme: dark;
+}
+.paperly-color-popover * {
+  box-sizing: border-box;
+}
+.paperly-color-help {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.paperly-color-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 18px;
+  margin-bottom: 8px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.paperly-color-heading button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-right: -4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--picker-muted);
+  font:
+    18px/1 Arial,
+    sans-serif;
+  cursor: pointer;
+}
+.paperly-color-heading button:hover {
+  background: var(--picker-border);
+  color: var(--picker-ink);
+}
+.paperly-color-spectrum {
+  position: relative;
+  height: 112px;
+  border-radius: 6px;
+  background:
+    linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent),
+    var(--picker-hue);
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+.paperly-color-cursor {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid white;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1px #0006,
+    0 1px 4px #0008;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.paperly-color-hue-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+  height: 20px;
+}
+.paperly-color-preview {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px #81968a66;
+}
+.paperly-color-hue {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 8px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(to right, red, #ff0, #0f0, #0ff, #00f, #f0f, red);
+  cursor: pointer;
+}
+.paperly-color-hue::-webkit-slider-thumb {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: 0 0 0 1px #0005;
+}
+.paperly-color-hue::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: 0 0 0 1px #0005;
+}
+.paperly-color-swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  margin-top: 10px;
+}
+.paperly-color-swatches button {
+  display: grid;
+  place-items: center;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #81968a55;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.paperly-color-swatches button:hover {
+  box-shadow:
+    0 0 0 2px var(--picker-bg),
+    0 0 0 3px var(--picker-focus);
+}
+.paperly-color-values {
+  display: grid;
+  grid-template-columns: 1.8fr 1fr 1fr 1fr;
+  gap: 6px;
+  margin-top: 10px;
+}
+.paperly-color-values label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--picker-muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.paperly-color-values input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 3px 4px;
+  border: 1px solid var(--picker-border);
+  border-radius: 5px;
+  background: var(--picker-input);
+  color: var(--picker-ink);
+  text-align: center;
+  font:
+    11px/1.3 ui-monospace,
+    Consolas,
+    monospace;
+  appearance: textfield;
+}
+.paperly-color-values input::-webkit-inner-spin-button {
+  appearance: none;
+}
+.paperly-color-hex > span {
+  position: relative;
+}
+.paperly-color-hex b {
+  position: absolute;
+  left: 7px;
+  top: 6px;
+  font-size: 11px;
+  font-weight: 400;
+}
+.paperly-color-hex input {
+  padding-left: 17px;
+  text-align: left;
+}
+.paperly-color-popover :is(button, input, [role='slider']):focus-visible {
+  outline: 2px solid var(--picker-focus);
+  outline-offset: 2px;
+}

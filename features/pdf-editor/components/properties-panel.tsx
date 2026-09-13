@@ -1,4 +1,6 @@
 'use client';
+
+import { ColorPicker } from './color-picker';
 import { BatchStyleProperties } from './batch-style-properties';
 import { TextLayoutProperties } from './text-layout-properties';
 import { TextStyleProperties } from './text-style-properties';
@@ -677,13 +679,12 @@ export function PropertiesPanel({ editor }: Props) {
                   </div>
                   <div>
                     <label>Label color</label>
-                    <input
+                    <ColorPicker
                       className="property-color"
-                      type="color"
                       value={
                         activeXfaField.captionColor?.startsWith('#') ? activeXfaField.captionColor : '#111111'
                       }
-                      onChange={(event) => updateXfaField({ captionColor: event.target.value })}
+                      onChange={(color) => updateXfaField({ captionColor: color })}
                     />
                   </div>
                 </div>
@@ -824,32 +825,29 @@ export function PropertiesPanel({ editor }: Props) {
                 <div className="form-color-grid">
                   <label>
                     Text
-                    <input
-                      type="color"
+                    <ColorPicker
                       value={activeXfaField.color?.startsWith('#') ? activeXfaField.color : '#111111'}
-                      onChange={(event) => updateXfaField({ color: event.target.value })}
+                      onChange={(color) => updateXfaField({ color: color })}
                     />
                   </label>
                   <label>
                     Fill
-                    <input
-                      type="color"
+                    <ColorPicker
                       value={
                         activeXfaField.backgroundColor?.startsWith('#')
                           ? activeXfaField.backgroundColor
                           : '#ffffff'
                       }
-                      onChange={(event) => updateXfaField({ backgroundColor: event.target.value })}
+                      onChange={(color) => updateXfaField({ backgroundColor: color })}
                     />
                   </label>
                   <label>
                     Border
-                    <input
-                      type="color"
+                    <ColorPicker
                       value={
                         activeXfaField.borderColor?.startsWith('#') ? activeXfaField.borderColor : '#666666'
                       }
-                      onChange={(event) => updateXfaField({ borderColor: event.target.value })}
+                      onChange={(color) => updateXfaField({ borderColor: color })}
                     />
                   </label>
                 </div>
@@ -917,26 +915,23 @@ export function PropertiesPanel({ editor }: Props) {
                 <div className="form-color-grid">
                   <label>
                     Text
-                    <input
-                      type="color"
+                    <ColorPicker
                       value={activeFormEdit?.color || selectedForm.color || '#111111'}
-                      onChange={(event) => updateFormEdit({ color: event.target.value })}
+                      onChange={(color) => updateFormEdit({ color: color })}
                     />
                   </label>
                   <label>
                     Fill
-                    <input
-                      type="color"
+                    <ColorPicker
                       value={activeFormEdit?.backgroundColor || selectedForm.backgroundColor || '#ffffff'}
-                      onChange={(event) => updateFormEdit({ backgroundColor: event.target.value })}
+                      onChange={(color) => updateFormEdit({ backgroundColor: color })}
                     />
                   </label>
                   <label>
                     Border
-                    <input
-                      type="color"
+                    <ColorPicker
                       value={activeFormEdit?.borderColor || selectedForm.borderColor || '#949b98'}
-                      onChange={(event) => updateFormEdit({ borderColor: event.target.value })}
+                      onChange={(color) => updateFormEdit({ borderColor: color })}
                     />
                   </label>
                 </div>
@@ -1109,15 +1104,14 @@ export function PropertiesPanel({ editor }: Props) {
                 </div>
                 <label>Reconstructed background</label>
                 <div className="form-cleanup-row">
-                  <input
-                    type="color"
+                  <ColorPicker
                     value={
                       activeFormEdit?.eraseColor ||
                       (activeFormKey ? formBackgrounds[activeFormKey] : '') ||
                       '#ffffff'
                     }
-                    onChange={(event) => {
-                      const eraseColor = event.target.value;
+                    onChange={(color) => {
+                      const eraseColor = color;
                       updateFormEdit({ eraseColor, eraseOriginal: true });
                       if (activeFormKey)
                         setFormBackgrounds((items) => ({ ...items, [activeFormKey]: eraseColor }));

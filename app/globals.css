@@ -5423,7 +5423,7 @@ select:not([multiple]) {
 .dark-mode .shape-selection-toggle,
 .dark-mode .load-data-file,
 .dark-mode .data-repeat-options button,
-.dark-mode .property-content button:not(.delete-box),
+.dark-mode .property-content button:not(.delete-box, .paperly-custom-swatch),
 .dark-mode .properties :is(input:not([type='color']), textarea, select),
 .dark-mode .repeat-sizing-editor select {
   background: #202824 !important;
@@ -5513,6 +5513,14 @@ select:not([multiple]) {
 }
 .dark-mode .font-warning * {
   color: #efc4ba !important;
+}
+.dark-mode .font-warning-actions a {
+  border-color: #804d43;
+  background: #3b2925;
+  color: #efc4ba;
+}
+.dark-mode .font-warning-actions a:hover {
+  background: #4a302b;
 }
 .dark-mode .canvas-pan-hint span {
   background: #1e2c27ed;

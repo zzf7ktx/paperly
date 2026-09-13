@@ -4,6 +4,7 @@ const http = require('node:http');
 const path = require('node:path');
 
 let server;
+const localPort = 4174;
 
 const mimeTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -44,7 +45,7 @@ function startLocalServer() {
   });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(localPort, '127.0.0.1', () => {
       const address = server.address();
       resolve(`http://127.0.0.1:${address.port}`);
     });

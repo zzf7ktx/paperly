@@ -1,4 +1,6 @@
 'use client';
+
+import { ColorPicker } from './color-picker';
 import type { PdfEditorController } from '../hooks/use-pdf-editor';
 
 type Props = {
@@ -80,34 +82,34 @@ export function VectorProperties({ editor }: Props) {
         <div className="vector-style-options">
           <label>
             Fill
-            <input
-              type="color"
+            <ColorPicker
+              aria-label="Shape fill color"
               value={
                 (activeVectorEdit.fill ?? activeVector.fill) === 'transparent'
                   ? '#ffffff'
                   : (activeVectorEdit.fill ?? activeVector.fill)
               }
-              onChange={(event) =>
+              onChange={(color) =>
                 setVectorEdits((items) => ({
                   ...items,
-                  [activeVectorKey]: { ...items[activeVectorKey], fill: event.target.value },
+                  [activeVectorKey]: { ...items[activeVectorKey], fill: color },
                 }))
               }
             />
           </label>
           <label>
             Stroke
-            <input
-              type="color"
+            <ColorPicker
+              aria-label="Shape stroke color"
               value={
                 (activeVectorEdit.stroke ?? activeVector.stroke) === 'transparent'
                   ? '#000000'
                   : (activeVectorEdit.stroke ?? activeVector.stroke)
               }
-              onChange={(event) =>
+              onChange={(color) =>
                 setVectorEdits((items) => ({
                   ...items,
-                  [activeVectorKey]: { ...items[activeVectorKey], stroke: event.target.value },
+                  [activeVectorKey]: { ...items[activeVectorKey], stroke: color },
                 }))
               }
             />

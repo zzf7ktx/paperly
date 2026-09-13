@@ -1,4 +1,6 @@
 'use client';
+
+import { ColorControl } from './color-control';
 import { PaperlySelect } from './paperly-select';
 import { alignmentOptions, fontOptions } from '../constants';
 import { sanitizeXfaRichHtml } from '../lib/xfa-dom';
@@ -202,14 +204,11 @@ export function XfaDrawProperties({ editor }: Props) {
               </div>
               <div>
                 <label>Color</label>
-                <div className="color-row xfa-draw-color">
-                  <input
-                    type="color"
-                    value={activeXfaDraw.color?.startsWith('#') ? activeXfaDraw.color : '#111111'}
-                    onChange={(event) => updateXfaDraw({ color: event.target.value })}
-                  />
-                  <code>{activeXfaDraw.color?.startsWith('#') ? activeXfaDraw.color : '#111111'}</code>
-                </div>
+                <ColorControl
+                  aria-label="XFA text color"
+                  value={activeXfaDraw.color?.startsWith('#') ? activeXfaDraw.color : '#111111'}
+                  onChange={(color) => updateXfaDraw({ color: color })}
+                />
               </div>
             </div>
             <label>Style</label>

@@ -1,4 +1,6 @@
 'use client';
+
+import { ColorControl } from './color-control';
 import { PaperlySelect } from './paperly-select';
 import { alignmentOptions } from '../constants';
 import { closestStandardFont } from '../lib/fonts';
@@ -207,19 +209,16 @@ export function TextStyleProperties({ editor }: Props) {
           ))}
         </div>
         <label>Color</label>
-        <div className="color-row">
-          <input
-            type="color"
-            disabled={!activeKey && !activeAdded}
-            value={activeAdded?.color || activeEdit?.color || activeVisual?.color || '#16302b'}
-            onChange={(event) =>
-              activeAdded
-                ? updateAddedBox(activeAdded.id, { color: event.target.value })
-                : activeKey && commit(activeKey, { color: event.target.value })
-            }
-          />
-          <code>{activeAdded?.color || activeEdit?.color || activeVisual?.color || '#16302b'}</code>
-        </div>
+        <ColorControl
+          aria-label="Text color"
+          disabled={!activeKey && !activeAdded}
+          value={activeAdded?.color || activeEdit?.color || activeVisual?.color || '#16302b'}
+          onChange={(color) =>
+            activeAdded
+              ? updateAddedBox(activeAdded.id, { color: color })
+              : activeKey && commit(activeKey, { color: color })
+          }
+        />
       </section>
     )) ||
     null

@@ -2,6 +2,46 @@ import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 
+test('custom palette stays above the picker and persists saved colors', async ({ page }, testInfo) => {
+  const pdf = await PDFDocument.create();
+  pdf.addPage().drawText('Palette sample');
+  const buffer = Buffer.from(await pdf.save());
+  const openDocument = async () => {
+    await page.locator('input[type="file"][accept="application/pdf,.pdf"]').setInputFiles({ name: 'palette.pdf', mimeType: 'application/pdf', buffer });
+    await page.locator('.text-layer [contenteditable="true"]').filter({ hasText: 'Palette sample' }).click();
+    await page.locator('.property-tabs').getByRole('button', { name: 'Style', exact: true }).click();
+  };
+  await page.goto('/');
+  await openDocument();
+  const control = page.locator('.paperly-color-control').first();
+  const palette = control.getByRole('group', { name: 'Custom color palette' });
+  await control.getByRole('button', { name: 'Text color', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Color picker' });
+  await expect(picker.locator('.paperly-color-swatches button')).toHaveCount(12);
+  await picker.getByRole('textbox', { name: 'Hex color' }).fill('123ABC');
+  await page.keyboard.press('Escape');
+  await palette.getByRole('button', { name: 'Save current color to palette' }).click();
+  await expect(palette.getByRole('button', { name: 'Use custom color #123abc' })).toBeVisible();
+  const positions = await palette.locator(':scope > *').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().y));
+  expect(new Set(positions).size).toBe(1);
+  const bounds = await palette.boundingBox();
+  const row = await control.locator('.color-row').boundingBox();
+  expect(bounds!.y + bounds!.height).toBeLessThan(row!.y);
+  await page.reload();
+  await openDocument();
+  await palette.getByRole('button', { name: 'Use custom color #123abc' }).click();
+  await expect(control.locator('code')).toHaveText('#123abc');
+  await control.screenshot({ path: testInfo.outputPath('custom-palette.png') });
+  const savedSwatch = palette.getByRole('button', { name: 'Use custom color #123abc' });
+  await expect(savedSwatch).toHaveCSS('background-color', 'rgb(18, 58, 188)');
+  await page.getByRole('button', { name: 'Theme: system. Click to change.' }).click();
+  await page.getByRole('button', { name: 'Theme: light. Click to change.' }).click();
+  await expect(savedSwatch).toHaveCSS('background-color', 'rgb(18, 58, 188)');
+  await control.screenshot({ path: testInfo.outputPath('custom-palette-dark.png') });
+  await control.getByRole('button', { name: 'Text color', exact: true }).click();
+  await expect(picker.locator('.paperly-color-swatches button')).toHaveCount(12);
+});
+
 test('demo, theme preference, and panel controls work', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -16,7 +56,9 @@ test('demo, theme preference, and panel controls work', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('edit, undo, redo, fill forms, switch documents, and export a readable PDF', async ({ page }, testInfo) => {
+test('edit, undo, redo, fill forms, switch documents, and export a readable PDF', async ({
+  page,
+}, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   const pdf = await PDFDocument.create();
@@ -60,5 +102,60 @@ test('edit, undo, redo, fill forms, switch documents, and export a readable PDF'
   expect(exported.getForm().getTextField('Customer name').getText()).toBe('Ada Lovelace');
   await upload.setInputFiles(exportedPath);
   await expect(page.locator('.text-layer')).toContainText('Updated agreement');
+  expect(errors).toEqual([]);
+});
+
+test('the themed color picker supports swatches, HEX, RGB, and keyboard controls', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/');
+  await page.locator('.draw-popover > summary').click();
+  const trigger = page.getByRole('button', { name: 'Fill color', exact: true });
+  await trigger.click();
+  const picker = page.getByRole('dialog', { name: 'Color picker' });
+  await expect(picker).toBeVisible();
+  await expect(page.locator('input[type="color"]')).toHaveCount(0);
+  await picker.getByRole('button', { name: 'Use #ff765f', exact: true }).click();
+  await expect(picker.getByRole('textbox', { name: 'Hex color' })).toHaveValue('FF765F');
+  await picker.getByRole('textbox', { name: 'Hex color' }).fill('286D5B');
+  await expect(picker.getByRole('spinbutton', { name: 'Red', exact: true })).toHaveValue('40');
+  await page.keyboard.press('Enter');
+  await picker.getByRole('spinbutton', { name: 'Red', exact: true }).fill('80');
+  await expect(picker.getByRole('textbox', { name: 'Hex color' })).toHaveValue('506D5B');
+  await picker.getByRole('textbox', { name: 'Hex color' }).fill('oops');
+  await page.keyboard.press('Enter');
+  await expect(picker.getByRole('textbox', { name: 'Hex color' })).toHaveValue('506D5B');
+  const spectrum = picker.getByRole('slider', { name: 'Saturation and brightness' });
+  await spectrum.focus();
+  await page.keyboard.press('ArrowUp');
+  await expect(picker.getByRole('textbox', { name: 'Hex color' })).not.toHaveValue('506D5B');
+  await spectrum.click({ position: { x: 120, y: 28 } });
+  const rgbValues = await Promise.all(
+    ['Red', 'Green', 'Blue'].map((name) =>
+      picker.getByRole('spinbutton', { name, exact: true }).inputValue(),
+    ),
+  );
+  expect(Math.max(...rgbValues.map(Number))).toBeGreaterThan(180);
+  expect(Math.max(...rgbValues.map(Number))).toBeLessThan(200);
+  await page.keyboard.press('Escape');
+  await expect(picker).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await page.screenshot({ path: testInfo.outputPath('color-picker-light.png') });
+  await page.keyboard.press('Escape');
+  // System -> light -> dark.
+  await page.getByRole('button', { name: 'Theme: system. Click to change.' }).click();
+  await page.getByRole('button', { name: 'Theme: light. Click to change.' }).click();
+  await trigger.click();
+  await expect(picker).toHaveClass(/paperly-color-dark/);
+  await page.screenshot({ path: testInfo.outputPath('color-picker-dark.png') });
+  await picker.screenshot({ path: testInfo.outputPath('color-picker-detail.png') });
+  const bounds = await picker.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(1000);
+  await page.locator('.brand').click();
+  await expect(picker).toHaveCount(0);
   expect(errors).toEqual([]);
 });
