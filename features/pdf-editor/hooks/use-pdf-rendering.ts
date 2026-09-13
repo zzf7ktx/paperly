@@ -67,7 +67,9 @@ export function usePdfRendering({
       const page = await pdfRef.current.getPage(currentPage + 1);
       if (cancelled || revision !== renderRevisionRef.current) return;
       const viewport = page.getViewport({ scale: zoom });
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      const maxCanvasPixels = 4_000_000;
+      const ratioLimit = Math.sqrt(maxCanvasPixels / Math.max(1, viewport.width * viewport.height));
+      const ratio = Math.min(window.devicePixelRatio || 1, 2, Math.max(0.75, ratioLimit));
       const stagingCanvas = document.createElement('canvas');
       stagingCanvas.width = Math.max(1, Math.floor(viewport.width * ratio));
       stagingCanvas.height = Math.max(1, Math.floor(viewport.height * ratio));
