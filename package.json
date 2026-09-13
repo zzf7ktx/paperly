@@ -14,7 +14,7 @@
     "build": "npm run copy:ocr && npm run copy:pdf && vinext build",
     "build:portable": "npm run copy:ocr && npm run copy:pdf && vite build --config portable.vite.config.ts && node scripts/package-portable.cjs",
     "electron": "npm run build:portable && electron .",
-    "build:electron": "npm run build:portable && npm run build:icons && electron-builder --win nsis --publish onTagOrDraft",
+    "build:electron": "npm run build:portable && npm run build:icons && electron-builder --win nsis --publish onTag",
     "build:electron:dir": "npm run build:portable && npm run build:icons && electron-builder --dir",
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
