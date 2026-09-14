@@ -1,81 +1,71 @@
-# Paperly PDF editor
+# Paperly
 
-Paperly shares one browser editor between its web, portable, and Electron builds. PDF processing, OCR, and export run on the device.
+Paperly is a private, local-first PDF editor for the browser and desktop. Edit text, work with forms, manage pages, run OCR, and export your document without sending it to a server.
 
-## Structure
+![Paperly product preview](public/og.png)
 
-```text
-app/
-  layout.tsx                 Web metadata, fonts, and global styles
-  page.tsx                   Server route: renders the shared client editor
-features/pdf-editor/
-  pdf-editor.tsx             Client entry and editor shell
-  components/               Toolbar, canvas, page rail, and property editors
-  hooks/
-    use-pdf-editor.ts        Composes the editor's state and feature hooks
-    use-editor-state.ts      Document state and stable browser/worker refs
-    use-document-sessions.ts Opening, switching, and closing documents
-    use-editor-history.ts    Undo/redo snapshots
-    use-pdf-rendering.ts     PDF canvas rendering and fitting
-    use-xfa-rendering.ts     Native XFA rendering and live scripts
-    use-text-editing.ts      Text changes, fonts, and formatting
-    use-form-editing.ts      Form fields and group movement
-    use-element-drag.ts      Text and XFA movement/resizing
-    use-image-editing.ts     Images and selection deletion
-    use-batch-editing.ts     Cloning, repeated data, and batch formatting
-    use-canvas-interaction.ts Drawing, marquee selection, pan, and zoom
-    use-editor-selection.ts Derived selection data
-    use-editor-preferences.ts Preferences and selection synchronization
-  services/                 PDF export and local OCR
-  lib/                      Fonts, text, appearance, geometry, and XFA DOM helpers
-  types.ts                  Shared editor models
-  constants.ts              Font and field options
-lib/                        XFA template parsing and script runtime
-portable/                   Standalone React entry and local launcher/server
-electron/                   Electron main process
-tests/                      Browser regression tests
-```
+## See it in action
 
-The web route is a Server Component; the interactive editor defines the client boundary. Portable imports the editor directly rather than importing a Next.js route. Keep browser APIs in the client feature, effects, and event handlers. Services receive explicit typed dependencies; hooks share a single state owner so document switching and history remain coordinated.
+![Paperly editor workspace](public/screenshot-editor.png)
 
-This follows Next.js's [project organization](https://nextjs.org/docs/app/getting-started/project-structure) and [Server/Client Component boundaries](https://nextjs.org/docs/app/getting-started/server-and-client-components). The existing web toolchain is **Vinext on Vite**, with Next.js App Router conventions; it has not been migrated to `next build`. The PDF worker's `?url` import is a Vite asset import shared by all current builds.
+## Highlights
 
-## Develop and build
+- Edit PDF text, formatting, images, and vector elements
+- Fill and edit AcroForm and XFA form fields
+- Add, duplicate, reorder, and delete pages
+- Run OCR locally on scanned PDFs
+- Undo and redo changes with document sessions
+- Export edited PDFs directly from the app
+- Use the same editor in the web, portable, and Electron builds
 
-Use Node.js 22.13 or later. The checked-in lockfile pins dependency versions.
+Your document stays on your device during editing. PDF processing, OCR, and export run locally in the browser or desktop app.
+
+## Run locally
+
+Requires Node.js 22.13 or later.
 
 ```sh
 npm ci
 npm run dev
+```
+
+Then open the local URL printed by Vite.
+
+Useful checks:
+
+```sh
 npm run typecheck
 npm run lint
 npm run build
-npm run start
-```
-
-The web build works without `.openai/hosting.json`. When that deployment file is present, the Sites plugin and its configured Cloudflare bindings are used.
-
-```sh
-npm run build:portable
-npm run electron
-npm run build:electron:dir
-npm run build:electron
-```
-
-- Portable output: `portable-build/`. On Windows it contains the browser app, launcher, server, and the current Node executable. Distribute the entire folder; double-click `Start Paperly.cmd`.
-- Electron directory output: `electron-dist/win-unpacked/` on Windows.
-- Windows installer: `electron-dist/Paperly-Setup-0.1.0.exe`.
-- Electron packaging commands generate the icons through PowerShell and should be run on Windows. The first build needs internet access to download Electron/packaging tools.
-- OCR assets are copied automatically before development and builds.
-
-## Verification
-
-```sh
-npx playwright install chromium
-npm run build:portable
 npm run test:e2e
 ```
 
-Tests run against the production portable renderer and cover the demo, theme persistence, panels, opening a two-page PDF, text edits, undo/redo, AcroForm values, switching documents, and reopening an exported PDF. To exercise the same tests against a running web build, set `PAPERLY_TEST_URL` to its local URL.
+## Build the desktop apps
 
-`npm run format` formats application source. Lint excludes generated bundles and vendored OCR assets. Existing untyped PDF.js internals remain lint warnings, as do existing hook dependency warnings; type checking remains strict. The browser suite does not exhaustively cover every XFA script, OCR layout, or PDF font variant.
+```sh
+# Standalone portable build
+npm run build:portable
+
+# Electron app / Windows installer
+npm run electron
+npm run build:electron
+```
+
+The portable output is written to `portable-build/`. On Windows, launch it with `portable-build/Start Paperly.cmd`. Electron artifacts are written to `electron-dist/`.
+
+## Project structure
+
+```text
+app/                    Web entry and global metadata
+features/pdf-editor/    Shared client editor, components, hooks, and services
+lib/                    XFA template parsing and runtime helpers
+portable/               Standalone browser entry and local launcher
+electron/               Electron main and preload processes
+tests/                  Playwright and editor regression tests
+```
+
+The web entry follows Next.js App Router conventions, while the current web toolchain is Vinext on Vite. Portable and Electron import the shared editor directly.
+
+## License
+
+This project is currently private and does not yet include a public license.
