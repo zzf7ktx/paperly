@@ -1090,10 +1090,23 @@ function patchTemplateXml(xml: string, edits: XfaTemplateEdit[], drawEdits: XfaD
       (node) => !node.getAttribute('layout') || node.getAttribute('layout') === 'position',
     );
     if (!positioned.length && !subforms.length) throw new Error('No editable XFA subform was found.');
-    for (const edit of additions) {
-      const target =
+    const pageAreas = Array.from(document.getElementsByTagNameNS('*', 'pageArea'));
+    const targetFor = (edit: { page: number; parentPath?: string }) => {
+      const explicit = edit.parentPath ? nativeElements.get(edit.parentPath) : undefined;
+      if (explicit && ['subform', 'area', 'contentArea', 'pageArea'].includes(explicit.localName))
+        return explicit;
+      const pageArea = pageAreas[Math.min(edit.page, Math.max(0, pageAreas.length - 1))];
+      if (pageArea) {
+        const pageSubform = positioned.find((node) => pageArea.contains(node));
+        if (pageSubform) return pageSubform;
+      }
+      return (
         positioned[Math.min(edit.page, positioned.length - 1)] ||
-        subforms[Math.min(edit.page, subforms.length - 1)];
+        subforms[Math.min(edit.page, subforms.length - 1)]
+      );
+    };
+    for (const edit of additions) {
+      const target = targetFor(edit);
       const sourceMatches = edit.cloneSourceName
         ? fields.filter((field) => field.getAttribute('name') === edit.cloneSourceName)
         : [];
@@ -1103,9 +1116,7 @@ function patchTemplateXml(xml: string, edits: XfaTemplateEdit[], drawEdits: XfaD
       else appendAddedField(document, target, edit);
     }
     for (const edit of drawAdditions) {
-      const target =
-        positioned[Math.min(edit.page, positioned.length - 1)] ||
-        subforms[Math.min(edit.page, subforms.length - 1)];
+      const target = targetFor(edit);
       const source = edit.cloneSourcePath ? nativeElements.get(edit.cloneSourcePath) : undefined;
       if (source?.localName === 'draw') appendClonedDraw(source.parentElement || target, source, edit);
       else appendAddedDraw(document, target, edit);

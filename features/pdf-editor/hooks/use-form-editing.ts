@@ -33,6 +33,7 @@ type Context = Pick<
   | 'setToast'
   | 'selectedXfaKey'
   | 'xfaStructureEdits'
+  | 'xfaFields'
   | 'scheduleXfaRuntimeRef'
   | 'xfaEventActivity'
   | 'selectedForm'
@@ -108,6 +109,7 @@ export function useFormEditing({
   selectedXfaKey,
   activeXfaField,
   xfaStructureEdits,
+  xfaFields,
   scheduleXfaRuntimeRef,
   xfaEventActivity,
   activeFormKey,
@@ -224,6 +226,13 @@ export function useFormEditing({
           : xfaAddKind === 'radio'
             ? 'Choose'
             : 'Text';
+    const nearestNativeField = Object.values(xfaFields)
+      .filter((candidate) => candidate.page === currentPage && candidate.parentPath)
+      .sort(
+        (left, right) =>
+          Math.hypot(left.x + left.width / 2 - x, left.top + left.height / 2 - top) -
+          Math.hypot(right.x + right.width / 2 - x, right.top + right.height / 2 - top),
+      )[0];
     const field: XfaTemplateEdit = {
       key,
       sourceName: name,
@@ -244,6 +253,7 @@ export function useFormEditing({
       events: {},
       originalEvents: {},
       added: true,
+      parentPath: nearestNativeField?.parentPath,
       value: xfaAddKind === 'checkbox' ? false : '',
       font: 'Helvetica',
       originalFont: 'Helvetica',

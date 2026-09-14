@@ -19,6 +19,7 @@ type Context = Pick<
   | 'xfaFields'
   | 'xfaStructureEdits'
   | 'xfaLiveValuesRef'
+  | 'xfaInitializedDocumentsRef'
   | 'currentPage'
   | 'xfaApplyingValuesRef'
   | 'setXfaStructureEdits'
@@ -53,6 +54,7 @@ export function useXfaRendering({
   xfaFields,
   xfaStructureEdits,
   xfaLiveValuesRef,
+  xfaInitializedDocumentsRef,
   currentPage,
   xfaApplyingValuesRef,
   setXfaStructureEdits,
@@ -92,32 +94,39 @@ export function useXfaRendering({
       try {
         const descriptors = { ...xfaFields, ...xfaStructureEdits };
         const wrappers = Array.from(container.querySelectorAll<HTMLElement>('.xfaField'));
-        const values = { ...xfaLiveValuesRef.current };
-        const updatedNames = new Set<string>();
+        const values = Object.assign(Object.create(null), xfaLiveValuesRef.current) as Record<
+          string,
+          string | number | boolean | null
+        >;
+        const updatedKeys = new Set<string>();
+        const aliases: Record<string, string[]> = Object.create(null);
+        Object.values(descriptors).forEach((field) => {
+          (aliases[field.name] ||= []).push(field.key);
+          if (field.nativePath) (aliases[field.nativePath] ||= []).push(field.key);
+        });
         wrappers.forEach((wrapper) => {
           const control = wrapper.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
             'input, textarea, select',
           );
-          const name = wrapper.getAttribute('xfaName');
-          if (!control || !name) return;
+          const key = wrapper.dataset.paperlyXfaKey;
+          if (!control || !key) return;
           if (control instanceof HTMLInputElement && control.type === 'checkbox')
-            values[name] = control.checked;
+            values[key] = control.checked;
           else if (control instanceof HTMLInputElement && control.type === 'radio') {
-            if (control.checked) values[name] = control.value;
-          } else values[name] = control.value;
+            if (control.checked) values[key] = control.value;
+          } else values[key] = control.value;
         });
         const mergeUpdates = (updates: Record<string, string | number | boolean | null>) => {
           for (const [name, value] of Object.entries(updates)) {
             values[name] = value;
-            updatedNames.add(name);
+            updatedKeys.add(name);
           }
         };
-        const pageFields = Object.values(descriptors).filter(
-          (field) => field.page === currentPage && !field.deleted,
-        );
-        pageFields.forEach((field) => {
-          if (field.added && !Object.prototype.hasOwnProperty.call(values, field.name))
-            values[field.name] = field.value ?? null;
+        const allFields = Object.values(descriptors).filter((field) => !field.deleted);
+        const pageFields = allFields.filter((field) => field.page === currentPage);
+        allFields.forEach((field) => {
+          if (field.added && !Object.prototype.hasOwnProperty.call(values, field.key))
+            values[field.key] = field.value ?? null;
         });
         const trigger = triggerKey ? descriptors[triggerKey] : undefined;
         const eventScript = trigger?.events?.[activity];
@@ -126,6 +135,8 @@ export function useXfaRendering({
             code: eventScript.code,
             language: eventScript.language,
             fieldName: trigger.name,
+            fieldKey: trigger.key,
+            aliases,
             values,
             mode: 'event',
           });
@@ -141,6 +152,8 @@ export function useXfaRendering({
                 code: script.code,
                 language: script.language,
                 fieldName: field.name,
+                fieldKey: field.key,
+                aliases,
                 values,
                 mode: 'event',
               });
@@ -150,12 +163,14 @@ export function useXfaRendering({
           }
         }
         for (let pass = 0; pass < 2; pass += 1) {
-          for (const field of pageFields) {
+          for (const field of allFields) {
             if (!field.calculation?.code) continue;
             const result = await executeXfaScript({
               code: field.calculation.code,
               language: field.calculation.language,
               fieldName: field.name,
+              fieldKey: field.key,
+              aliases,
               values,
               mode: 'calculate',
             });
@@ -169,9 +184,9 @@ export function useXfaRendering({
           const control = wrapper.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
             'input, textarea, select',
           );
-          const name = wrapper.getAttribute('xfaName');
-          if (!control || !name || !updatedNames.has(name)) return;
-          const value = values[name];
+          const key = wrapper.dataset.paperlyXfaKey;
+          if (!control || !key || !updatedKeys.has(key)) return;
+          const value = values[key];
           let changed = false;
           if (control instanceof HTMLInputElement && control.type === 'checkbox') {
             const checked = Boolean(value);
@@ -193,9 +208,9 @@ export function useXfaRendering({
           let changed = false;
           const next = { ...edits };
           pageFields
-            .filter((field) => field.added && Object.prototype.hasOwnProperty.call(values, field.name))
+            .filter((field) => field.added && Object.prototype.hasOwnProperty.call(values, field.key))
             .forEach((field) => {
-              const value = values[field.name];
+              const value = values[field.key];
               if (next[field.key]?.value === value) return;
               next[field.key] = {
                 ...field,
@@ -211,6 +226,8 @@ export function useXfaRendering({
             code: field.validation.code,
             language: field.validation.language,
             fieldName: field.name,
+            fieldKey: field.key,
+            aliases,
             values,
             mode: 'validate',
           });
@@ -231,7 +248,21 @@ export function useXfaRendering({
           window.setTimeout(() => scheduleXfaRuntimeRef.current(pending.triggerKey, pending.activity), 0);
       }
     },
-    [currentPage, liveXfaScripts, xfaFields, xfaStructureEdits],
+    [
+      currentPage,
+      liveXfaScripts,
+      scheduleXfaRuntimeRef,
+      setXfaRuntimeStatus,
+      setXfaStructureEdits,
+      xfaApplyingValuesRef,
+      xfaFields,
+      xfaLayerRef,
+      xfaLiveValuesRef,
+      xfaRuntimeBusyRef,
+      xfaRuntimePendingRef,
+      xfaRuntimeRevisionRef,
+      xfaStructureEdits,
+    ],
   );
 
   const scheduleLiveXfaScripts = useCallback(
@@ -244,7 +275,7 @@ export function useXfaRendering({
         void runLiveXfaScripts(triggerKey, activity);
       }, 90);
     },
-    [liveXfaScripts, runLiveXfaScripts],
+    [liveXfaScripts, runLiveXfaScripts, xfaRuntimeRevisionRef, xfaRuntimeTimerRef],
   );
   useEffect(() => {
     scheduleXfaRuntimeRef.current = scheduleLiveXfaScripts;
@@ -257,11 +288,34 @@ export function useXfaRendering({
       setXfaRuntimeStatus('Live scripts are off');
       return;
     }
-    scheduleLiveXfaScripts(undefined, 'recalculate');
+    const documentKey = pdfRef.current as object | null;
+    let activity = 'recalculate';
+    if (documentKey) {
+      let initializedPages = xfaInitializedDocumentsRef.current.get(documentKey);
+      if (!initializedPages) {
+        initializedPages = new Set<number>();
+        xfaInitializedDocumentsRef.current.set(documentKey, initializedPages);
+      }
+      if (!initializedPages.has(currentPage)) {
+        initializedPages.add(currentPage);
+        activity = 'initialize';
+      }
+    }
+    scheduleLiveXfaScripts(undefined, activity);
     return () => {
       if (xfaRuntimeTimerRef.current !== null) window.clearTimeout(xfaRuntimeTimerRef.current);
     };
-  }, [currentPage, liveXfaScripts, scheduleLiveXfaScripts]);
+  }, [
+    currentPage,
+    liveXfaScripts,
+    pdfRef,
+    scheduleLiveXfaScripts,
+    setXfaRuntimeStatus,
+    xfaRuntimePendingRef,
+    xfaRuntimeRevisionRef,
+    xfaRuntimeTimerRef,
+    xfaInitializedDocumentsRef,
+  ]);
 
   useEffect(() => {
     const container = xfaLayerRef.current;
@@ -314,7 +368,7 @@ export function useXfaRendering({
             link.target = newWindow ? '_blank' : '_self';
             link.rel = 'noopener noreferrer nofollow';
           },
-        } as any,
+        } as never,
         intent: 'display',
       });
       if (cancelled) return;
@@ -859,8 +913,14 @@ export function useXfaRendering({
           });
           container.append(clone);
         });
-      setXfaFields(discovered);
-      setXfaDraws(discoveredDraws);
+      setXfaFields((existing) => ({
+        ...Object.fromEntries(Object.entries(existing).filter(([, field]) => field.page !== currentPage)),
+        ...discovered,
+      }));
+      setXfaDraws((existing) => ({
+        ...Object.fromEntries(Object.entries(existing).filter(([, draw]) => draw.page !== currentPage)),
+        ...discoveredDraws,
+      }));
     })().catch((reason) => {
       console.error(reason);
       if (!cancelled) setError('This XFA page could not be rendered.');
@@ -881,6 +941,21 @@ export function useXfaRendering({
     xfaScriptMetadata,
     xfaStructureEdits,
     xfaTemplateModel,
+    pdfRef,
+    scheduleXfaRuntimeRef,
+    setError,
+    setSelected,
+    setSelectedAddedId,
+    setSelectedForm,
+    setSelectedImage,
+    setSelectedXfaDrawKey,
+    setSelectedXfaKey,
+    setXfaChanged,
+    setXfaDraws,
+    setXfaFields,
+    setXfaStructureEdits,
+    xfaApplyingValuesRef,
+    xfaLayerRef,
     zoom,
   ]);
 

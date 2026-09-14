@@ -6,7 +6,7 @@ export type XfaRuntimeResult = {
   error?: string;
 };
 
-const workerSource = String.raw`
+export const xfaRuntimeWorkerSource = String.raw`
 const blocked = ['fetch','XMLHttpRequest','WebSocket','EventSource','WebTransport','BroadcastChannel','importScripts','indexedDB','caches'];
 for (const name of blocked) {
   try { Object.defineProperty(self, name, { value: undefined, configurable: false, writable: false }); } catch {}
@@ -24,13 +24,30 @@ function translateFormCalc(source) {
     .replace(/&/g, '+');
 }
 
-function run({ code, language, fieldName, values, mode }) {
+function run({ code, language, fieldName, fieldKey, aliases, values, mode }) {
   const updates = {};
+  const instanceOf = key => String(key).match(/:instance:(\d+)$/)?.[1];
+  const pathOf = key => {
+    const match = String(key).match(/^\d+:field:(.*):instance:\d+$/);
+    return (match?.[1] || String(key)).split('.');
+  };
+  const candidateScore = candidate => {
+    const currentPath = pathOf(fieldKey);
+    const candidatePath = pathOf(candidate);
+    const parentLimit = Math.max(0, Math.min(currentPath.length, candidatePath.length) - 1);
+    let sharedParents = 0;
+    while (sharedParents < parentLimit && currentPath[sharedParents] === candidatePath[sharedParents]) sharedParents += 1;
+    const sameInstance = instanceOf(candidate) !== undefined && instanceOf(candidate) === instanceOf(fieldKey);
+    const samePage = String(candidate).split(':', 1)[0] === String(fieldKey).split(':', 1)[0];
+    return (sameInstance ? 10000 : 0) + sharedParents * 100 + (samePage ? 10 : 0);
+  };
   const resolveName = path => {
     const cleaned = String(path || '').replace(/\[(\d+)\]/g, '').replace(/^\$record\./, '');
     if (Object.prototype.hasOwnProperty.call(values, cleaned)) return cleaned;
     const tail = cleaned.split('.').filter(Boolean).at(-1) || cleaned;
-    return Object.keys(values).find(name => name === tail || name.endsWith('.' + tail)) || tail;
+    const candidates = aliases?.[cleaned] || aliases?.[tail] || [];
+    if (candidates.includes(fieldKey)) return fieldKey;
+    return candidates.toSorted((left, right) => candidateScore(right) - candidateScore(left))[0] || Object.keys(values).find(name => name === tail || name.endsWith('.' + tail)) || tail;
   };
   const field = name => ({
     get rawValue() { return Object.prototype.hasOwnProperty.call(updates, name) ? updates[name] : values[name] ?? null; },
@@ -39,7 +56,7 @@ function run({ code, language, fieldName, values, mode }) {
     set formattedValue(value) { this.rawValue = value; },
     get isNull() { return this.rawValue === null || this.rawValue === ''; },
   });
-  const current = field(fieldName);
+  const current = field(fieldKey);
   const xfa = Object.freeze({
     resolveNode(path) { return field(resolveName(path)); },
     resolveNodes(path) { return [field(resolveName(path))]; },
@@ -54,15 +71,15 @@ function run({ code, language, fieldName, values, mode }) {
     Floor: value => Math.floor(Number(value)),
     Ceil: value => Math.ceil(Number(value)),
   };
-  const fieldNames = Object.keys(values).filter(name => /^[A-Za-z_$][\w$]*$/.test(name) && !(name in helpers) && !['xfa','event'].includes(name));
+  const fieldNames = Object.keys(aliases || {}).filter(name => /^[A-Za-z_$][\w$]*$/.test(name) && !(name in helpers) && !['xfa','event'].includes(name));
   const parameters = ['xfa', '$', 'event', ...Object.keys(helpers), ...fieldNames];
-  const argumentsList = [xfa, current, { name: fieldName, value: current.rawValue }, ...Object.values(helpers), ...fieldNames.map(name => field(name))];
+  const argumentsList = [xfa, current, { name: fieldName, value: current.rawValue }, ...Object.values(helpers), ...fieldNames.map(name => field(resolveName(name)))];
   let source = language === 'formcalc' ? translateFormCalc(code) : code;
   const looksLikeExpression = !/[;{}]/.test(source) && !/(^|[^=!<>])=([^=]|$)/.test(source) && !/^\s*(if|for|while|switch|return|var|let|const)\b/.test(source);
   if (looksLikeExpression) source = 'return (' + source + ')';
   const fn = new Function(...parameters, '"use strict";\n' + source);
   const result = fn.call(current, ...argumentsList);
-  if (mode === 'calculate' && result !== undefined && !Object.prototype.hasOwnProperty.call(updates, fieldName)) updates[fieldName] = result;
+  if (mode === 'calculate' && result !== undefined && !Object.prototype.hasOwnProperty.call(updates, fieldKey)) updates[fieldKey] = result;
   return { updates, result };
 }
 
@@ -77,13 +94,15 @@ export function executeXfaScript(
     code: string;
     language: XfaScriptLanguage;
     fieldName: string;
+    fieldKey?: string;
+    aliases?: Record<string, string[]>;
     values: Record<string, string | number | boolean | null>;
     mode: 'calculate' | 'validate' | 'event';
   },
   timeoutMs = 300,
 ) {
   return new Promise<XfaRuntimeResult>((resolve) => {
-    const url = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
+    const url = URL.createObjectURL(new Blob([xfaRuntimeWorkerSource], { type: 'text/javascript' }));
     const worker = new Worker(url);
     let settled = false;
     const finish = (result: XfaRuntimeResult) => {
@@ -101,6 +120,10 @@ export function executeXfaScript(
     worker.onmessage = (event: MessageEvent<XfaRuntimeResult>) => finish(event.data);
     worker.onerror = () =>
       finish({ updates: {}, error: 'The script could not run in the isolated preview.' });
-    worker.postMessage(input);
+    worker.postMessage({
+      ...input,
+      fieldKey: input.fieldKey || input.fieldName,
+      aliases: input.aliases || {},
+    });
   });
 }

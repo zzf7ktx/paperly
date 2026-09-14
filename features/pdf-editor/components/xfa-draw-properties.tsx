@@ -11,7 +11,6 @@ type Props = {
     PdfEditorController,
     | 'xfaImageReplaceRef'
     | 'xfaRichEditorRef'
-    | 'selected'
     | 'activeXfaDraw'
     | 'updateXfaDraw'
     | 'rememberXfaRichSelection'
@@ -24,7 +23,6 @@ export function XfaDrawProperties({ editor }: Props) {
   const {
     xfaImageReplaceRef,
     xfaRichEditorRef,
-    selected,
     activeXfaDraw,
     updateXfaDraw,
     rememberXfaRichSelection,

@@ -1,6 +1,7 @@
 import {
   applyNativeXfaTemplateEdits,
   readNativeXfaTemplateModel,
+  readNativeXfaTemplateScripts,
   type XfaDrawEdit,
 } from '../../../lib/xfa-template';
 import type { EditorState } from '../hooks/use-editor-state';
@@ -150,6 +151,46 @@ export async function exportDocument(
           throw new Error(
             'The edited XFA template could not be reopened. Export was stopped to protect the document.',
           );
+        const missingEdit = templateEdits.find((edit) => {
+          const nativeStillExists = edit.nativeId
+            ? exportedModel.nodes.some((node) => node.id === edit.nativeId)
+            : Boolean(edit.nativePath && exportedModel.nodes.some((node) => node.path === edit.nativePath));
+          if (edit.deleted) return nativeStillExists;
+          if (edit.added) return !exportedModel.fields.some((node) => node.name === edit.name);
+          return Boolean((edit.nativeId || edit.nativePath) && !nativeStillExists);
+        });
+        const missingDraw = nativeDrawEdits.find((edit) => {
+          const nativeStillExists = edit.nativeId
+            ? exportedModel.nodes.some((node) => node.id === edit.nativeId)
+            : Boolean(edit.nativePath && exportedModel.nodes.some((node) => node.path === edit.nativePath));
+          if (edit.deleted) return nativeStillExists;
+          if (edit.added) return !exportedModel.draws.some((node) => node.name === edit.sourceName);
+          return Boolean((edit.nativeId || edit.nativePath) && !nativeStillExists);
+        });
+        if (missingEdit || missingDraw)
+          throw new Error(
+            'An edited XFA element did not survive export. Export was stopped to protect the document.',
+          );
+        const editedScripts = templateEdits.filter(
+          (edit) => edit.calculation || edit.validation || Object.keys(edit.events || {}).length,
+        );
+        if (editedScripts.length) {
+          const exportedScripts = await readNativeXfaTemplateScripts(sourceBytes);
+          const missingScript = editedScripts.find((edit) => {
+            const metadata = exportedScripts[`${edit.name}:${edit.occurrence}`];
+            return (
+              (edit.calculation?.code && metadata?.calculation?.code !== edit.calculation.code) ||
+              (edit.validation?.code && metadata?.validation?.code !== edit.validation.code) ||
+              Object.entries(edit.events || {}).some(
+                ([activity, block]) => block.code && metadata?.events[activity]?.code !== block.code,
+              )
+            );
+          });
+          if (missingScript)
+            throw new Error(
+              'An edited XFA script did not survive export. Export was stopped to protect the document.',
+            );
+        }
       }
     }
     const pdfDocument = await PDFDocument.load(sourceBytes);

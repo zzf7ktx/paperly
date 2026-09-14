@@ -58,6 +58,7 @@ export function useEditorState() {
   const xfaApplyingValuesRef = useRef(false);
   const xfaRuntimeTimerRef = useRef<number | null>(null);
   const xfaLiveValuesRef = useRef<Record<string, string | number | boolean | null>>({});
+  const xfaInitializedDocumentsRef = useRef<WeakMap<object, Set<number>>>(new WeakMap());
   const deleteSelectionRef = useRef<() => void>(() => undefined);
   const deleteVectorRef = useRef<() => void>(() => undefined);
   const marqueeSuppressClickRef = useRef(false);
@@ -202,6 +203,7 @@ export function useEditorState() {
     xfaApplyingValuesRef,
     xfaRuntimeTimerRef,
     xfaLiveValuesRef,
+    xfaInitializedDocumentsRef,
     deleteSelectionRef,
     deleteVectorRef,
     marqueeSuppressClickRef,
