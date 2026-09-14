@@ -175,6 +175,26 @@ export type XfaTemplateModel = {
   warnings: string[];
 };
 
+export type XfaPacket = { name: string; xml: string };
+export type XfaXmlInspection = {
+  kind: 'xdp' | 'packet';
+  packetName: string;
+  packetNames: string[];
+  templateVersion?: string;
+  namespace?: string;
+  encoding?: string;
+  warnings: string[];
+  compatibility: {
+    fields: number;
+    scripts: number;
+    repeatedSections: number;
+    formType: 'static' | 'dynamic';
+    unsupportedFeatures: string[];
+    risk: 'low' | 'review' | 'high';
+  };
+  xml: string;
+};
+
 const unitPoints: Record<string, number> = { pt: 1, in: 72, cm: 72 / 2.54, mm: 72 / 25.4, px: 72 / 96 };
 
 function shiftedMeasurement(source: string | null, pointDelta: number, fallbackPoints: number) {
@@ -1155,6 +1175,566 @@ export async function readNativeXfaTemplateScripts(bytes: Uint8Array) {
     return readScriptsFromTemplate(decode(xfa));
   }
   return {} as Record<string, XfaScriptMetadata>;
+}
+
+async function readNativeXfaPacketsUnsafe(bytes: Uint8Array): Promise<XfaPacket[]> {
+  const {
+    PDFArray,
+    PDFDict,
+    PDFDocument,
+    PDFHexString,
+    PDFName,
+    PDFRawStream,
+    PDFString,
+    decodePDFRawStream,
+  } = await import('pdf-lib');
+  const pdfDocument = await PDFDocument.load(bytes);
+  const acroForm = pdfDocument.context.lookupMaybe(pdfDocument.catalog.get(PDFName.of('AcroForm')), PDFDict);
+  if (!acroForm) return [];
+  const xfaRaw = acroForm.get(PDFName.of('XFA'));
+  if (!xfaRaw) return [];
+  const xfa = pdfDocument.context.lookup(xfaRaw);
+  const decode = (stream: import('pdf-lib').PDFRawStream, packetName: string) => {
+    try {
+      return new TextDecoder().decode(decodePDFRawStream(stream).decode());
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason);
+      console.warn(`XFA packet “${packetName}” could not be decoded.`, reason);
+      return `<!-- Paperly could not decode the ${packetName} XFA packet: ${message.replace(/--/g, '—')} -->`;
+    }
+  };
+  if (xfa instanceof PDFArray) {
+    const packets: XfaPacket[] = [];
+    for (let index = 0; index + 1 < xfa.size(); index += 2) {
+      const name = xfa.lookupMaybe(index, PDFString, PDFHexString)?.decodeText();
+      if (!name) continue;
+      try {
+        const rawStream = xfa.get(index + 1);
+        if (!rawStream) {
+          packets.push({ name, xml: `<!-- The ${name} XFA packet is empty. -->` });
+          continue;
+        }
+        const stream = pdfDocument.context.lookup(rawStream);
+        packets.push({
+          name,
+          xml:
+            stream instanceof PDFRawStream
+              ? decode(stream, name)
+              : `<!-- The ${name} XFA packet is not stored as a readable stream. -->`,
+        });
+      } catch (reason) {
+        const message = reason instanceof Error ? reason.message : String(reason);
+        console.warn(`XFA packet “${name}” could not be read.`, reason);
+        packets.push({
+          name,
+          xml: `<!-- Paperly could not read the ${name} XFA packet: ${message.replace(/--/g, '—')} -->`,
+        });
+      }
+    }
+    return packets;
+  }
+  return xfa instanceof PDFRawStream ? [{ name: 'xdp', xml: decode(xfa, 'xdp') }] : [];
+}
+
+export async function readNativeXfaPackets(bytes: Uint8Array): Promise<XfaPacket[]> {
+  try {
+    return await readNativeXfaPacketsUnsafe(bytes);
+  } catch (reason) {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    console.warn('The XFA packet table could not be read.', reason);
+    return [
+      {
+        name: 'unreadable',
+        xml: `<!-- Paperly found XFA data, but its packet table could not be decoded: ${message.replace(/--/g, '—')} -->`,
+      },
+    ];
+  }
+}
+
+function parseSafeXfaXml(xml: string) {
+  const byteLength = new TextEncoder().encode(xml).byteLength;
+  if (byteLength > 10 * 1024 * 1024) throw new Error('XFA XML is larger than the 10 MB safety limit.');
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml))
+    throw new Error('DTD and entity declarations are not allowed in imported XFA XML.');
+  const document = new DOMParser().parseFromString(xml, 'application/xml');
+  const parseError = document.querySelector('parsererror');
+  if (parseError) {
+    const detail = parseError.textContent?.replace(/\s+/g, ' ').trim() || 'The XML is malformed.';
+    let location = detail.match(/line\s+(\d+).*column\s+(\d+)/i)?.slice(1, 3).map(Number);
+    if (!location) {
+      const stack: Array<{ name: string; index: number }> = [];
+      let failureIndex = xml.length;
+      for (const match of xml.matchAll(/<\/?([\w:.-]+)(?:\s[^<>]*?)?\s*\/?>/g)) {
+        const token = match[0];
+        if (token.startsWith('</')) {
+          if (stack.at(-1)?.name !== match[1]) { failureIndex = match.index; break; }
+          stack.pop();
+        } else if (!token.endsWith('/>')) stack.push({ name: match[1], index: match.index });
+      }
+      const before = xml.slice(0, failureIndex);
+      location = [before.split('\n').length, before.length - before.lastIndexOf('\n')];
+    }
+    throw new Error(`XML parsing failed at line ${location[0]}, column ${location[1]}: ${detail}`);
+  }
+  const elements = Array.from(document.getElementsByTagName('*'));
+  if (elements.length > 50_000) throw new Error('XFA XML exceeds the 50,000-element safety limit.');
+  let maximumDepth = 0;
+  for (const element of elements) {
+    let depth = 0;
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) depth += 1;
+    maximumDepth = Math.max(maximumDepth, depth);
+  }
+  if (maximumDepth > 200) throw new Error('XFA XML exceeds the 200-level nesting safety limit.');
+  for (const image of Array.from(document.getElementsByTagNameNS('*', 'image'))) {
+    if ((image.textContent?.replace(/\s/g, '').length || 0) > 7_000_000)
+      throw new Error('An embedded XFA image exceeds the 5 MB safety limit.');
+  }
+  return document;
+}
+
+export function formatXfaXml(xml: string, compact = false) {
+  const document = parseSafeXfaXml(xml);
+  const serializer = new XMLSerializer();
+  if (compact) {
+    const clone = document.cloneNode(true) as XMLDocument;
+    for (const element of Array.from(clone.getElementsByTagName('*'))) {
+      const hasElementChild = Array.from(element.childNodes).some((node) => node.nodeType === Node.ELEMENT_NODE);
+      if (!hasElementChild) continue;
+      for (const node of Array.from(element.childNodes))
+        if (node.nodeType === Node.TEXT_NODE && !node.nodeValue?.trim()) node.remove();
+    }
+    return serializer.serializeToString(clone).trim();
+  }
+
+  const declaration = xml.match(/^\s*(<\?xml[^>]*\?>)/i)?.[1];
+  const openingTag = (element: Element) =>
+    `<${element.tagName}${Array.from(element.attributes)
+      .map((attribute) => ` ${attribute.name}="${attribute.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}"`)
+      .join('')}>`;
+  const inline = (node: Node): string => {
+    if (node.nodeType !== Node.ELEMENT_NODE) return serializer.serializeToString(node);
+    const element = node as Element;
+    if (!element.childNodes.length) return openingTag(element).replace(/>$/, '/>');
+    return `${openingTag(element)}${Array.from(element.childNodes).map(inline).join('')}</${element.tagName}>`;
+  };
+  const render = (node: Node, depth: number): string => {
+    const indent = '  '.repeat(depth);
+    if (node.nodeType !== Node.ELEMENT_NODE) return `${indent}${serializer.serializeToString(node)}`;
+    const element = node as Element;
+    const meaningful = Array.from(element.childNodes).filter(
+      (child) => child.nodeType !== Node.TEXT_NODE || Boolean(child.nodeValue?.trim()),
+    );
+    if (!meaningful.length) return `${indent}${openingTag(element).replace(/>$/, '/>')}`;
+    if (meaningful.every((child) => child.nodeType !== Node.ELEMENT_NODE)) return `${indent}${inline(element)}`;
+    // Mixed-content nodes are whitespace-sensitive; keep them intact instead of changing their value.
+    if (meaningful.some((child) => child.nodeType === Node.TEXT_NODE || child.nodeType === Node.CDATA_SECTION_NODE))
+      return `${indent}${inline(element)}`;
+    const opening = openingTag(element);
+    const children = meaningful.map((child) => render(child, depth + 1)).join('\n');
+    return `${indent}${opening}\n${children}\n${indent}</${element.tagName}>`;
+  };
+  return [declaration, render(document.documentElement, 0)].filter(Boolean).join('\n');
+}
+
+export function inspectXfaXml(xml: string): XfaXmlInspection {
+  const document = parseSafeXfaXml(xml);
+  const root = document.documentElement;
+  const packetName = root.localName;
+  const isXdp = packetName === 'xdp';
+  const packetNames = isXdp ? Array.from(root.children).map((child) => child.localName) : [packetName];
+  const template = isXdp
+    ? Array.from(root.children).find((child) => child.localName === 'template')
+    : packetName === 'template'
+      ? root
+      : undefined;
+  const templateVersion = template?.namespaceURI?.match(/xfa-template\/([^/]+)\/?$/)?.[1];
+  const encoding = xml.match(/^\s*<\?xml[^>]*encoding=["']([^"']+)/i)?.[1] || 'UTF-8';
+  const warnings: string[] = [];
+  if (isXdp) {
+    if (!packetNames.includes('template')) throw new Error('The XDP does not contain a template packet.');
+    if (packetNames.length > 64) throw new Error('The XDP exceeds the 64-packet safety limit.');
+  } else if (
+    !['template', 'datasets', 'config', 'localeSet', 'connectionSet', 'sourceSet', 'stylesheet', 'xdc'].includes(packetName)
+  ) {
+    throw new Error(`“${packetName}” is not a supported XFA packet.`);
+  }
+  if (template) {
+    if (!templateVersion || !/^(2\.\d+|3\.[0-3])$/.test(templateVersion))
+      warnings.push(`XFA template namespace ${template.namespaceURI || 'is missing or unsupported'}.`);
+    const pageAreas = Array.from(template.getElementsByTagNameNS('*', 'pageArea'));
+    if (!pageAreas.length) warnings.push('The template has no page area and may not render as a standalone PDF.');
+    else if (pageAreas.some((pageArea) => !directChild(pageArea, 'medium')))
+      warnings.push('Each page area should define a medium with long and short dimensions.');
+    const ids = new Set(Array.from(template.querySelectorAll('[id]'), (node) => node.getAttribute('id')));
+    const names = new Set(Array.from(template.querySelectorAll('[name]'), (node) => node.getAttribute('name')));
+    const brokenPrototypes = Array.from(template.querySelectorAll('[usehref],[use]')).filter((node) => {
+      const reference = node.getAttribute('usehref') || node.getAttribute('use') || '';
+      const id = reference.match(/#([^.#\s]+)/)?.[1];
+      return id && !ids.has(id);
+    });
+    if (brokenPrototypes.length) warnings.push(`${brokenPrototypes.length} prototype reference${brokenPrototypes.length === 1 ? '' : 's'} could not be resolved.`);
+    const pageNames = new Set(pageAreas.map((node) => node.getAttribute('name')));
+    const brokenPageTargets = Array.from(template.querySelectorAll('breakBefore[target],breakAfter[target],overflow[target]')).filter((node) => {
+      const target = (node.getAttribute('target') || '').replace(/^#/, '').split('.').at(-1);
+      return target && !pageNames.has(target) && !names.has(target);
+    });
+    if (brokenPageTargets.length) warnings.push(`${brokenPageTargets.length} page-area reference${brokenPageTargets.length === 1 ? '' : 's'} could not be resolved.`);
+    const suspiciousBindings = Array.from(template.getElementsByTagNameNS('*', 'bind')).filter((node) => {
+      const reference = node.getAttribute('ref') || '';
+      return reference && !/^(\$record|\$data|\.?[A-Za-z_])/.test(reference);
+    });
+    if (suspiciousBindings.length) warnings.push(`${suspiciousBindings.length} binding reference${suspiciousBindings.length === 1 ? '' : 's'} use an unsupported expression.`);
+  }
+  const remoteReferences = Array.from(document.querySelectorAll('[href],[schemaLocation]')).filter((node) =>
+    /^(https?:)?\/\//i.test(node.getAttribute('href') || node.getAttribute('schemaLocation') || ''),
+  );
+  if (remoteReferences.length) warnings.push('Remote schemas and resources are not loaded by Paperly.');
+  const compatibilityRoot = template || root;
+  const count = (name: string) => compatibilityRoot.getElementsByTagNameNS('*', name).length;
+  const repeatedSections = Array.from(compatibilityRoot.getElementsByTagNameNS('*', 'occur')).filter(
+    (node) => node.getAttribute('max') === '-1' || Number(node.getAttribute('max') || 1) > 1,
+  ).length;
+  const unsupportedFeatureNames: Array<[string, string]> = [
+    ['signature', 'Digital signatures'],
+    ['barcode', 'Barcodes'],
+    ['connect', 'Data connections'],
+    ['submit', 'Form submission'],
+    ['execute', 'External execution'],
+    ['signData', 'Signed data'],
+  ];
+  const unsupportedFeatures = unsupportedFeatureNames
+    .filter(([tag]) => count(tag) > 0)
+    .map(([, label]) => label);
+  const scriptText = Array.from(compatibilityRoot.getElementsByTagNameNS('*', 'script'))
+    .map((script) => script.textContent || '')
+    .join('\n');
+  const availableFieldNames = new Set(
+    Array.from(compatibilityRoot.getElementsByTagNameNS('*', 'field'), (field) => field.getAttribute('name'))
+      .filter((name): name is string => Boolean(name)),
+  );
+  const somReferences = Array.from(
+    scriptText.matchAll(/resolveNodes?\s*\(\s*["']([^"']+)["']/g),
+    (match) => match[1].replace(/\[\d+\]/g, '').split('.').filter((part) => part !== 'parent').at(-1),
+  ).filter((name): name is string => Boolean(name));
+  const brokenSom = Array.from(new Set(somReferences.filter((name) => !availableFieldNames.has(name))));
+  if (brokenSom.length) warnings.push(`Unresolved SOM reference${brokenSom.length === 1 ? '' : 's'}: ${brokenSom.join(', ')}.`);
+  if (/\b(app|host|event\.target|xfa\.host)\b/.test(scriptText))
+    unsupportedFeatures.push('Acrobat-specific scripting APIs');
+  const knownFormCalc = new Set(['Sum', 'Avg', 'Min', 'Max', 'Round', 'Abs', 'Floor', 'Ceil']);
+  const formCalcCalls = Array.from(scriptText.matchAll(/\b([A-Za-z_]\w*)\s*\(/g), (match) => match[1]);
+  if (formCalcCalls.some((name) => /^[A-Z]/.test(name) && !knownFormCalc.has(name)))
+    unsupportedFeatures.push('Unsupported FormCalc functions');
+  const supportedLayouts = new Set(['position', 'tb', 'lr-tb', 'rl-tb', 'row', 'table']);
+  if (Array.from(compatibilityRoot.querySelectorAll('[layout]')).some((node) => !supportedLayouts.has(node.getAttribute('layout') || 'position')))
+    unsupportedFeatures.push('Unsupported layouts');
+  const standardFonts = /^(Helvetica|Arial|Times|Times New Roman|Courier|Symbol|ZapfDingbats)$/i;
+  const customFonts = new Set(
+    Array.from(compatibilityRoot.getElementsByTagNameNS('*', 'font'), (font) => font.getAttribute('typeface'))
+      .filter((name): name is string => Boolean(name) && !standardFonts.test(name || '')),
+  );
+  if (customFonts.size) unsupportedFeatures.push(`Fonts requiring files: ${Array.from(customFonts).join(', ')}`);
+  const compatibility = {
+    fields: count('field'),
+    scripts: count('script'),
+    repeatedSections,
+    formType: (repeatedSections || /\b(instanceManager|addInstance|removeInstance)\b/.test(scriptText) ? 'dynamic' : 'static') as 'static' | 'dynamic',
+    unsupportedFeatures,
+    risk: (warnings.length || unsupportedFeatures.length
+      ? 'high'
+      : count('script') || repeatedSections
+        ? 'review'
+        : 'low') as 'low' | 'review' | 'high',
+  };
+  return {
+    kind: isXdp ? 'xdp' : 'packet',
+    packetName,
+    packetNames,
+    templateVersion,
+    namespace: template?.namespaceURI || root.namespaceURI || undefined,
+    encoding,
+    warnings,
+    compatibility,
+    xml: new XMLSerializer().serializeToString(document),
+  };
+}
+
+export function mergeXfaDatasets(currentXml: string, importedXml: string) {
+  const current = parseSafeXfaXml(currentXml);
+  const incoming = parseSafeXfaXml(importedXml);
+  if (current.documentElement.localName !== 'datasets' || incoming.documentElement.localName !== 'datasets')
+    throw new Error('Dataset merging requires two datasets packets.');
+  const currentData = Array.from(current.documentElement.children).find((node) => node.localName === 'data');
+  const incomingData = Array.from(incoming.documentElement.children).find((node) => node.localName === 'data');
+  if (!currentData || !incomingData) throw new Error('Both datasets packets must contain an xfa:data element.');
+  const key = (node: Element) => `${node.namespaceURI || ''}:${node.localName}`;
+  for (const child of Array.from(incomingData.children)) {
+    const existing = Array.from(currentData.children).find((node) => key(node) === key(child));
+    const replacement = current.importNode(child, true);
+    if (existing) existing.replaceWith(replacement);
+    else currentData.append(replacement);
+  }
+  return new XMLSerializer().serializeToString(current);
+}
+
+function safeXmlName(name: string) {
+  const cleaned = name.trim().replace(/[^A-Za-z0-9_.-]+/g, '_');
+  return /^[A-Za-z_]/.test(cleaned) ? cleaned : `field_${cleaned || 'value'}`;
+}
+
+export function createXfaDatasetsFromRecords(records: Array<Record<string, unknown>>) {
+  if (!records.length) throw new Error('The imported data contains no records.');
+  const document = documentImplementation().createDocument('http://www.xfa.org/schema/xfa-data/1.0/', 'xfa:datasets');
+  const root = document.documentElement;
+  root.setAttribute('xmlns:xfa', 'http://www.xfa.org/schema/xfa-data/1.0/');
+  const data = document.createElementNS(root.namespaceURI, 'xfa:data');
+  const form = document.createElement('form1');
+  for (const record of records) {
+    const row = document.createElement('row');
+    for (const [name, value] of Object.entries(record)) {
+      const field = document.createElement(safeXmlName(name));
+      field.textContent = value === null || value === undefined ? '' : String(value);
+      row.append(field);
+    }
+    form.append(row);
+  }
+  data.append(form);
+  root.append(data);
+  return new XMLSerializer().serializeToString(document);
+}
+
+function documentImplementation() {
+  return new DOMParser().parseFromString('<root/>', 'application/xml').implementation;
+}
+
+export function parseTabularXfaData(text: string, type: 'json' | 'csv') {
+  if (type === 'json') {
+    const parsed: unknown = JSON.parse(text);
+    const records = Array.isArray(parsed) ? parsed : [parsed];
+    if (records.some((record) => !record || typeof record !== 'object' || Array.isArray(record)))
+      throw new Error('JSON data must be an object or an array of objects.');
+    return createXfaDatasetsFromRecords(records as Array<Record<string, unknown>>);
+  }
+  const lines = text.split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2) throw new Error('CSV data needs a header and at least one data row.');
+  const parseLine = (line: string) => {
+    const values: string[] = [];
+    let value = '';
+    let quoted = false;
+    for (let index = 0; index < line.length; index += 1) {
+      const character = line[index];
+      if (character === '"' && quoted && line[index + 1] === '"') { value += '"'; index += 1; }
+      else if (character === '"') quoted = !quoted;
+      else if (character === ',' && !quoted) { values.push(value); value = ''; }
+      else value += character;
+    }
+    values.push(value);
+    return values;
+  };
+  const headers = parseLine(lines[0]);
+  return createXfaDatasetsFromRecords(lines.slice(1).map((line) =>
+    Object.fromEntries(headers.map((header, index) => [header, parseLine(line)[index] || ''])),
+  ));
+}
+
+export function createXfaPacketZip(packets: XfaPacket[]) {
+  const encoder = new TextEncoder();
+  const parts: Uint8Array[] = [];
+  const central: Uint8Array[] = [];
+  let offset = 0;
+  const u16 = (value: number) => new Uint8Array([value & 255, (value >>> 8) & 255]);
+  const u32 = (value: number) =>
+    new Uint8Array([value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255]);
+  const join = (chunks: Uint8Array[]) => {
+    const output = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+    let position = 0;
+    for (const chunk of chunks) { output.set(chunk, position); position += chunk.length; }
+    return output;
+  };
+  const crc32 = (data: Uint8Array) => {
+    let crc = 0xffffffff;
+    for (const byte of data) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  };
+  for (const [index, packet] of packets.entries()) {
+    const safe = packet.name.replace(/[^a-z0-9_-]+/gi, '-') || `packet-${index + 1}`;
+    const name = encoder.encode(`${safe}.${packet.name === 'xdp' ? 'xdp' : 'xml'}`);
+    const data = encoder.encode(packet.xml);
+    const crc = crc32(data);
+    const local = join([u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), name, data]);
+    parts.push(local);
+    central.push(join([u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), name]));
+    offset += local.length;
+  }
+  const directory = join(central);
+  return join([...parts, directory, u32(0x06054b50), u16(0), u16(0), u16(packets.length), u16(packets.length), u32(directory.length), u32(offset), u16(0)]);
+}
+
+export function composeXdp(packets: XfaPacket[]) {
+  const existing = packets.find((packet) => packet.name === 'xdp');
+  if (existing) return inspectXfaXml(existing.xml).xml;
+  if (!packets.some((packet) => packet.name === 'template'))
+    throw new Error('A template packet is required to create an XDP.');
+  const bodies = packets
+    .filter((packet) => !['preamble', 'postamble'].includes(packet.name))
+    .map((packet) => packet.xml.replace(/^\s*<\?xml[^>]*>\s*/i, '').trim());
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">\n${bodies.join('\n')}\n</xdp:xdp>`;
+}
+
+export async function createXfaPdfFromXdp(
+  xdp: string,
+  storage: 'stream' | 'packets' = 'stream',
+  fallbackPage = false,
+  acroFormFallback = false,
+) {
+  const inspected = inspectXfaXml(xdp);
+  if (inspected.kind !== 'xdp') throw new Error('A complete XDP file is required to create a new XFA PDF.');
+  if (inspected.warnings.length)
+    throw new Error(`This XDP is not ready for PDF rendering. ${inspected.warnings.join(' ')}`);
+  const { PDFArray, PDFDict, PDFDocument, PDFName, PDFString } = await import('pdf-lib');
+  const pdfDocument = await PDFDocument.create();
+  if (fallbackPage || acroFormFallback) {
+    const page = pdfDocument.addPage([612, 792]);
+    page.drawText('This document contains an Adobe XFA form.', { x: 54, y: 710, size: 18 });
+    page.drawText('Open it in Adobe Acrobat to use the native interactive form.', { x: 54, y: 678, size: 11 });
+  }
+  let xfa;
+  if (storage === 'packets') {
+    const document = parseSafeXfaXml(inspected.xml);
+    const array = PDFArray.withContext(pdfDocument.context);
+    array.push(PDFString.of('preamble'));
+    array.push(pdfDocument.context.register(pdfDocument.context.flateStream('<?xml version="1.0" encoding="UTF-8"?><xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">')));
+    for (const child of Array.from(document.documentElement.children)) {
+      array.push(PDFString.of(child.localName));
+      array.push(pdfDocument.context.register(pdfDocument.context.flateStream(new XMLSerializer().serializeToString(child))));
+    }
+    array.push(PDFString.of('postamble'));
+    array.push(pdfDocument.context.register(pdfDocument.context.flateStream('</xdp:xdp>')));
+    xfa = array;
+  } else xfa = pdfDocument.context.register(pdfDocument.context.flateStream(inspected.xml));
+  if (acroFormFallback) {
+    const form = pdfDocument.getForm();
+    const page = pdfDocument.getPages()[0];
+    const templateDocument = parseSafeXfaXml(inspected.xml);
+    const fields = Array.from(templateDocument.getElementsByTagNameNS('*', 'field')).slice(0, 20);
+    const used = new Set<string>();
+    fields.forEach((field, index) => {
+      const base = field.getAttribute('name') || `Field${index + 1}`;
+      let name = base;
+      for (let suffix = 2; used.has(name); suffix += 1) name = `${base}_${suffix}`;
+      used.add(name);
+      const control = directChild(field, 'ui')?.firstElementChild?.localName || 'textEdit';
+      const position = { x: 54, y: Math.max(72, 630 - index * 27), width: 260, height: 20 };
+      if (control === 'checkButton') form.createCheckBox(name).addToPage(page, { ...position, width: 20 });
+      else if (control === 'choiceList') {
+        const dropdown = form.createDropdown(name);
+        const options = Array.from(field.getElementsByTagNameNS('*', 'items'))
+          .flatMap((items) => Array.from(items.children, (item) => item.textContent || ''))
+          .filter(Boolean);
+        if (options.length) dropdown.addOptions(Array.from(new Set(options)));
+        dropdown.addToPage(page, position);
+      } else if (!['button', 'signature', 'barcode', 'imageEdit'].includes(control))
+        form.createTextField(name).addToPage(page, position);
+    });
+    const generatedForm = pdfDocument.context.lookup(pdfDocument.catalog.get(PDFName.of('AcroForm')), PDFDict);
+    const acroForm = pdfDocument.context.obj({ Fields: generatedForm.get(PDFName.of('Fields')), XFA: xfa });
+    const defaultResources = generatedForm.get(PDFName.of('DR'));
+    const defaultAppearance = generatedForm.get(PDFName.of('DA'));
+    if (defaultResources) acroForm.set(PDFName.of('DR'), defaultResources);
+    if (defaultAppearance) acroForm.set(PDFName.of('DA'), defaultAppearance);
+    pdfDocument.catalog.set(PDFName.of('AcroForm'), pdfDocument.context.register(acroForm));
+  } else {
+    const acroForm = pdfDocument.context.obj({ Fields: [], XFA: xfa });
+    pdfDocument.catalog.set(PDFName.of('AcroForm'), pdfDocument.context.register(acroForm));
+  }
+  pdfDocument.catalog.set(PDFName.of('NeedsRendering'), pdfDocument.context.obj(true));
+  const bytes = await pdfDocument.save({ useObjectStreams: false });
+  const packets = await readNativeXfaPackets(bytes);
+  if (storage === 'stream' ? !packets.some((packet) => packet.name === 'xdp') : !packets.some((packet) => packet.name === 'template'))
+    throw new Error('The generated PDF did not retain its XFA packets.');
+  return bytes;
+}
+
+export async function attachXfaToFallbackPdf(fallbackBytes: Uint8Array, xfaSourceBytes: Uint8Array) {
+  const packets = await readNativeXfaPackets(xfaSourceBytes);
+  if (!packets.length) throw new Error('The source PDF does not contain XFA form data.');
+  const xdp = packets.length === 1 && packets[0].name === 'xdp' ? packets[0].xml : composeXdp(packets);
+  const { PDFDict, PDFDocument, PDFName } = await import('pdf-lib');
+  const pdfDocument = await PDFDocument.load(fallbackBytes);
+  const xfa = pdfDocument.context.register(pdfDocument.context.flateStream(xdp));
+  const existing = pdfDocument.context.lookupMaybe(pdfDocument.catalog.get(PDFName.of('AcroForm')), PDFDict);
+  const acroForm = existing || pdfDocument.context.obj({ Fields: [] });
+  acroForm.set(PDFName.of('XFA'), xfa);
+  if (!existing) pdfDocument.catalog.set(PDFName.of('AcroForm'), pdfDocument.context.register(acroForm));
+  pdfDocument.catalog.set(PDFName.of('NeedsRendering'), pdfDocument.context.obj(true));
+  const output = await pdfDocument.save({ useObjectStreams: false });
+  if (!(await readNativeXfaPackets(output)).length) throw new Error('The exported PDF did not retain its XFA form data.');
+  return output;
+}
+
+export async function extractEmbeddedXfaFallbackPdf(xfaSourceBytes: Uint8Array) {
+  const { PDFDict, PDFDocument, PDFName } = await import('pdf-lib');
+  const pdfDocument = await PDFDocument.load(xfaSourceBytes);
+  if (!pdfDocument.getPageCount()) return null;
+  const acroForm = pdfDocument.context.lookupMaybe(pdfDocument.catalog.get(PDFName.of('AcroForm')), PDFDict);
+  acroForm?.delete(PDFName.of('XFA'));
+  pdfDocument.catalog.delete(PDFName.of('NeedsRendering'));
+  return pdfDocument.save({ useObjectStreams: false });
+}
+
+export async function replaceNativeXfaPacket(bytes: Uint8Array, packetName: string, xml: string) {
+  const inspected = inspectXfaXml(xml);
+  if (inspected.kind === 'packet' && inspected.packetName !== packetName)
+    throw new Error(`This is a ${inspected.packetName} packet, but ${packetName} is selected.`);
+  const { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFRef, PDFString } =
+    await import('pdf-lib');
+  const pdfDocument = await PDFDocument.load(bytes);
+  const acroForm = pdfDocument.context.lookupMaybe(pdfDocument.catalog.get(PDFName.of('AcroForm')), PDFDict);
+  if (!acroForm) throw new Error('The PDF does not contain an XFA AcroForm dictionary.');
+  const xfaRaw = acroForm.get(PDFName.of('XFA'));
+  const xfa = pdfDocument.context.lookup(xfaRaw);
+  const replacement = pdfDocument.context.flateStream(inspected.xml);
+  if (xfa instanceof PDFArray) {
+    let replaced = false;
+    for (let index = 0; index + 1 < xfa.size(); index += 2) {
+      if (xfa.lookupMaybe(index, PDFString, PDFHexString)?.decodeText() !== packetName) continue;
+      const raw = xfa.get(index + 1);
+      if (raw instanceof PDFRef) pdfDocument.context.assign(raw, replacement);
+      else xfa.set(index + 1, replacement);
+      replaced = true;
+      break;
+    }
+    if (!replaced) {
+      xfa.push(PDFString.of(packetName));
+      xfa.push(pdfDocument.context.register(replacement));
+    }
+  } else if (xfa instanceof PDFRawStream) {
+    if (packetName === 'xdp' && inspected.kind === 'xdp') {
+      if (xfaRaw instanceof PDFRef) pdfDocument.context.assign(xfaRaw, replacement);
+      else acroForm.set(PDFName.of('XFA'), replacement);
+    } else {
+      const current = (await readNativeXfaPackets(bytes))[0];
+      if (!current || current.name !== 'xdp') throw new Error('The XDP stream could not be read.');
+      const xdpDocument = parseSafeXfaXml(current.xml);
+      const target = Array.from(xdpDocument.documentElement.children).find(
+        (child) => child.localName === packetName,
+      );
+      const imported = parseSafeXfaXml(inspected.xml).documentElement;
+      const adopted = xdpDocument.importNode(imported, true);
+      if (target) target.replaceWith(adopted);
+      else xdpDocument.documentElement.append(adopted);
+      const patched = pdfDocument.context.flateStream(new XMLSerializer().serializeToString(xdpDocument));
+      if (xfaRaw instanceof PDFRef) pdfDocument.context.assign(xfaRaw, patched);
+      else acroForm.set(PDFName.of('XFA'), patched);
+    }
+  } else throw new Error('Paperly could not locate the XFA packet storage.');
+  const output = await pdfDocument.save({ useObjectStreams: false });
+  const verified = await readNativeXfaPackets(output);
+  if (!verified.some((packet) => packet.name === packetName || packet.name === 'xdp'))
+    throw new Error('The imported packet did not survive PDF verification.');
+  return output;
 }
 
 export async function readNativeXfaTemplateModel(bytes: Uint8Array) {

@@ -3,8 +3,10 @@ import { EditorCanvas } from './components/editor-canvas';
 import { EditorToolbar } from './components/editor-toolbar';
 import { PageRail } from './components/page-rail';
 import { PropertiesPanel } from './components/properties-panel';
+import { XfaXmlDialog } from './components/xfa-xml-dialog';
+import './components/xfa-xml-dialog.css';
 
-import { type CSSProperties, useEffect, useState } from 'react';
+import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { usePdfEditor } from './hooks/use-pdf-editor';
 import type { ThemeMode } from './types';
 
@@ -48,7 +50,15 @@ function isNewerVersion(current: string, latest: string) {
 
 export default function PdfEditor() {
   const editor = usePdfEditor();
-  const [updateStatus, setUpdateStatus] = useState<'idle' | 'loading' | 'latest' | 'available' | 'downloading' | 'downloaded' | 'error'>('idle');
+  const newPdfDialogRef = useRef<HTMLDialogElement>(null);
+  const fileMenuRef = useRef<HTMLDetailsElement>(null);
+  const moreMenuRef = useRef<HTMLDetailsElement>(null);
+  const [newPdfSize, setNewPdfSize] = useState<'a4' | 'letter' | 'legal'>('a4');
+  const [newPdfOrientation, setNewPdfOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [newPdfPages, setNewPdfPages] = useState(1);
+  const [updateStatus, setUpdateStatus] = useState<
+    'idle' | 'loading' | 'latest' | 'available' | 'downloading' | 'downloaded' | 'error'
+  >('idle');
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const {
@@ -59,8 +69,18 @@ export default function PdfEditor() {
     themeMode,
     setThemeMode,
     pdfBytes,
+    fileName,
     isXfaDocument,
+    xfaViewMode,
+    switchingXfaView,
+    switchXfaView,
+    exportXfaWithEditedFallback,
     xfaChanged,
+    xfaFields,
+    xfaStructureEdits,
+    activeXfaField,
+    setSelectedXfaKey,
+    setCurrentPage,
     xfaAddKind,
     edits,
     past,
@@ -73,6 +93,7 @@ export default function PdfEditor() {
     showDeletedLabels,
     loading,
     error,
+    setError,
     toast,
     leftPanelWidth,
     setLeftPanelWidth,
@@ -86,9 +107,11 @@ export default function PdfEditor() {
     switchDocument,
     closeDocument,
     openFile,
+    openStaticPdf,
     undo,
     redo,
     exportPdf,
+    getXfaXmlBytes,
   } = editor;
 
   useEffect(() => {
@@ -102,9 +125,73 @@ export default function PdfEditor() {
     });
   }, []);
 
+  const createNewPdf = async () => {
+    const sizes = { a4: [595.28, 841.89], letter: [612, 792], legal: [612, 1008] } as const;
+    const selected = sizes[newPdfSize];
+    const dimensions: [number, number] = newPdfOrientation === 'portrait'
+      ? [selected[0], selected[1]]
+      : [selected[1], selected[0]];
+    const { PDFDocument } = await import('pdf-lib');
+    const pdf = await PDFDocument.create();
+    for (let page = 0; page < newPdfPages; page += 1) pdf.addPage(dimensions);
+    const bytes = await pdf.save();
+    newPdfDialogRef.current?.close();
+    await openFile(new File([bytes.slice().buffer as ArrayBuffer], 'Untitled.pdf', { type: 'application/pdf' }));
+  };
+
+  const cycleTheme = () => {
+    const next: ThemeMode = themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system';
+    setThemeMode(next);
+    try { window.localStorage.setItem('paperly-theme-mode', next); } catch { /* optional preference */ }
+  };
+
+  const handleUpdate = async () => {
+    const nativeUpdater = window.paperlyUpdater;
+    if (nativeUpdater) {
+      if (updateStatus === 'downloaded') return nativeUpdater.install();
+      setDownloadProgress(null);
+      setUpdateStatus('loading');
+      try { await nativeUpdater.check(); } catch { setUpdateStatus('error'); }
+      return;
+    }
+    setUpdateStatus('loading');
+    try {
+      const response = await fetch(RELEASES_API_URL, { headers: { Accept: 'application/vnd.github+json' } });
+      if (!response.ok) throw new Error('Unable to check for updates.');
+      const data = (await response.json()) as { tag_name?: string; html_url?: string; assets?: Array<{ name?: string; browser_download_url?: string }> };
+      const tag = data.tag_name || 'v0.0.0';
+      const installer = data.assets?.find((asset) => /\.exe$/i.test(asset.name || '')) || data.assets?.[0];
+      const releaseUrl = data.html_url || RELEASES_URL;
+      if (isNewerVersion(APP_VERSION, tag)) {
+        setLatestVersion(tag);
+        setUpdateStatus('available');
+        const anchor = document.createElement('a');
+        anchor.href = installer?.browser_download_url || releaseUrl;
+        anchor.target = '_blank';
+        anchor.rel = 'noreferrer';
+        anchor.download = installer?.name || 'Paperly-Setup.exe';
+        anchor.click();
+      } else {
+        setLatestVersion(tag);
+        setUpdateStatus('latest');
+        window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');
+      }
+    } catch {
+      setUpdateStatus('error');
+      window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   const renderDocumentTabs = (combined = false) => (
     <nav className={`document-tabs ${combined ? 'combined' : ''}`} aria-label="Open PDF documents">
-      <div className="document-tab-list">
+      <div
+        className="document-tab-list"
+        tabIndex={documentTabs.length > 1 ? 0 : -1}
+        onWheel={(event) => {
+          if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+          event.currentTarget.scrollLeft += event.deltaY;
+        }}
+      >
         {documentTabs.map((tab) => (
           <div key={tab.id} className={`document-tab ${tab.id === activeDocumentId ? 'active' : ''}`}>
             <button
@@ -151,7 +238,10 @@ export default function PdfEditor() {
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
-        openFile(event.dataTransfer.files[0]);
+        const file = event.dataTransfer.files[0];
+        if (/\.(xdp|xml)$/i.test(file?.name || ''))
+          window.dispatchEvent(new CustomEvent('paperly-open-xfa', { detail: file }));
+        else openFile(file);
       }}
     >
       <header className="topbar">
@@ -164,27 +254,42 @@ export default function PdfEditor() {
           <div className="header-fill" aria-hidden="true" />
         )}
         <div className="header-actions">
-          <button
-            className="button secondary theme-toggle"
-            onClick={() => {
-              const next: ThemeMode =
-                themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system';
-              setThemeMode(next);
-              try {
-                window.localStorage.setItem('paperly-theme-mode', next);
-              } catch {
-                /* local preference is optional */
-              }
-            }}
-            aria-label={`Theme: ${themeMode}. Click to change.`}
-            title={`Theme: ${themeMode}. Click for ${themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system'} mode.`}
-          >
-            {themeMode === 'system' ? 'Auto' : themeMode === 'light' ? 'Light' : 'Dark'}
-          </button>
-          <button className="icon-button" onClick={undo} disabled={!past.length} aria-label="Undo">
+          {xfaViewMode && (
+            <div className="xfa-view-switch" role="group" aria-label="XFA document view">
+              <button
+                className={xfaViewMode === 'xfa' ? 'active' : ''}
+                onClick={() => switchXfaView('xfa')}
+                disabled={switchingXfaView}
+                aria-pressed={xfaViewMode === 'xfa'}
+                title="Use the live XFA form"
+              >
+                XFA form
+              </button>
+              <button
+                className={xfaViewMode === 'fallback' ? 'active' : ''}
+                onClick={() => switchXfaView('fallback')}
+                disabled={switchingXfaView}
+                aria-pressed={xfaViewMode === 'fallback'}
+                title="Edit the standard PDF fallback"
+              >
+                {switchingXfaView ? 'Preparing…' : 'Fallback'}
+              </button>
+            </div>
+          )}
+          {xfaViewMode === 'fallback' && (
+            <button
+              className="button secondary xfa-fallback-export"
+              onClick={() => void exportXfaWithEditedFallback()}
+              disabled={switchingXfaView}
+              title="Export one XFA PDF containing these edited fallback pages"
+            >
+              Export XFA + fallback
+            </button>
+          )}
+          <button className="icon-button history-action undo-action" onClick={undo} disabled={!past.length} aria-label="Undo">
             ↶
           </button>
-          <button className="icon-button" onClick={redo} disabled={!future.length} aria-label="Redo">
+          <button className="icon-button history-action redo-action" onClick={redo} disabled={!future.length} aria-label="Redo">
             ↷
           </button>
           <input
@@ -194,13 +299,19 @@ export default function PdfEditor() {
             hidden
             onChange={(event) => openFile(event.target.files?.[0])}
           />
-          {documentTabs.length === 0 && (
-            <button className="button secondary" onClick={() => uploadRef.current?.click()}>
-              Open PDF
-            </button>
-          )}
+          <div className="header-file-split">
+            <button type="button" onClick={() => newPdfDialogRef.current?.showModal()}>New PDF</button>
+            <details ref={fileMenuRef}>
+              <summary role="button" aria-label="More new and open options">▾</summary>
+              <div className="header-file-menu">
+              <button onClick={() => { fileMenuRef.current?.removeAttribute('open'); newPdfDialogRef.current?.showModal(); }}><b>＋</b><span>New PDF<small>Create blank pages</small></span></button>
+              <button onClick={() => { fileMenuRef.current?.removeAttribute('open'); uploadRef.current?.click(); }}><b>↥</b><span>Open PDF<small>Choose an existing document</small></span></button>
+              <button onClick={() => { fileMenuRef.current?.removeAttribute('open'); window.dispatchEvent(new Event('paperly-choose-xfa')); }}><b>X</b><span>Open XFA<small>Import XML or XDP</small></span></button>
+              </div>
+            </details>
+          </div>
           <button
-            className={`button secondary update-button update-${updateStatus}`}
+            className={`button secondary update-button standalone-update update-${updateStatus}`}
             type="button"
             onClick={async () => {
               const nativeUpdater = window.paperlyUpdater;
@@ -233,8 +344,7 @@ export default function PdfEditor() {
                 };
                 const tag = data.tag_name || 'v0.0.0';
                 const installerAsset =
-                  data.assets?.find((asset) => /\.exe$/i.test(asset.name || '')) ||
-                  data.assets?.[0];
+                  data.assets?.find((asset) => /\.exe$/i.test(asset.name || '')) || data.assets?.[0];
                 const nextReleaseUrl = data.html_url || RELEASES_URL;
 
                 if (isNewerVersion(APP_VERSION, tag)) {
@@ -306,6 +416,46 @@ export default function PdfEditor() {
                         ? 'Try updates'
                         : 'Check for updates'}
           </button>
+          <details ref={moreMenuRef} className="header-more-menu">
+            <summary role="button" aria-label="More application options">•••</summary>
+            <div>
+              <button aria-label={`Theme: ${themeMode}. Click to change.`} onClick={() => { cycleTheme(); moreMenuRef.current?.removeAttribute('open'); }}>
+                <b>{themeMode === 'system' ? 'A' : themeMode === 'light' ? '☀' : '◐'}</b>
+                <span>Theme<small>{themeMode === 'system' ? 'System' : themeMode === 'light' ? 'Light' : 'Dark'} · click to change</small></span>
+              </button>
+              <button aria-label="Check for updates" disabled={updateStatus === 'loading' || updateStatus === 'downloading'} onClick={() => { void handleUpdate(); moreMenuRef.current?.removeAttribute('open'); }}>
+                <b>↻</b>
+                <span>Updates<small>{updateStatus === 'downloaded' ? `Install ${latestVersion ?? 'update'}` : updateStatus === 'available' ? `Download ${latestVersion ?? 'update'}` : updateStatus === 'latest' ? 'Paperly is up to date' : updateStatus === 'error' ? 'Check again' : 'Check for updates'}</small></span>
+              </button>
+            </div>
+          </details>
+          <XfaXmlDialog
+            fileName={fileName}
+            hasXfaDocument={Boolean(xfaViewMode)}
+            hideOpenTrigger
+            getBytes={getXfaXmlBytes}
+            onOpenPdf={async (file) => {
+              await openFile(file);
+            }}
+            onOpenStaticPdf={openStaticPdf}
+            activeFieldPath={activeXfaField?.nativePath}
+            onJumpToControl={(name) => {
+              const fields = Object.values({ ...xfaFields, ...xfaStructureEdits }).filter(
+                (field) => !field.deleted && (field.name === name || field.nativePath === name),
+              );
+              const field = fields.find((candidate) => candidate.page === activeXfaField?.page) || fields[0];
+              if (!field) {
+                setError(`No rendered XFA control named “${name}” was found.`);
+                return;
+              }
+              setCurrentPage(field.page);
+              setSelectedXfaKey(field.key);
+              window.setTimeout(() => {
+                document.querySelector<HTMLElement>(`[data-paperly-xfa-key="${CSS.escape(field.key)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, 50);
+            }}
+            onError={setError}
+          />
           <button
             className="button primary export-button"
             onClick={exportPdf}
@@ -316,6 +466,24 @@ export default function PdfEditor() {
           </button>
         </div>
       </header>
+
+      <dialog ref={newPdfDialogRef} className="new-pdf-dialog" aria-labelledby="new-pdf-title">
+        <form method="dialog">
+          <header>
+            <div><h2 id="new-pdf-title">New PDF</h2><p>Start with clean, editable pages.</p></div>
+            <button className="icon-button" value="cancel" aria-label="Close new PDF dialog">×</button>
+          </header>
+          <div className="new-pdf-options">
+            <label>Page size<select value={newPdfSize} onChange={(event) => setNewPdfSize(event.target.value as typeof newPdfSize)}><option value="a4">A4</option><option value="letter">Letter</option><option value="legal">Legal</option></select></label>
+            <label>Orientation<select value={newPdfOrientation} onChange={(event) => setNewPdfOrientation(event.target.value as typeof newPdfOrientation)}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
+            <label>Pages<input type="number" min="1" max="100" value={newPdfPages} onChange={(event) => setNewPdfPages(Math.max(1, Math.min(100, Number(event.target.value) || 1)))} /></label>
+          </div>
+          <footer>
+            <button className="button secondary" value="cancel">Cancel</button>
+            <button className="button primary" type="button" onClick={() => void createNewPdf()}>Create PDF</button>
+          </footer>
+        </form>
+      </dialog>
 
       {documentTabs.length > 0 && !combineTitleAndTabs && renderDocumentTabs()}
 
@@ -379,7 +547,7 @@ export default function PdfEditor() {
                   : pdfBytes
                     ? isXfaDocument
                       ? `XFA form · ${xfaChanged ? 'Unsaved field changes' : 'Ready to fill and export'}`
-                      : `${Object.keys(edits).length + addedBoxes.length} change${Object.keys(edits).length + addedBoxes.length === 1 ? '' : 's'} · ${addedBoxes.length} added text box${addedBoxes.length === 1 ? '' : 'es'}`
+                      : `${xfaViewMode === 'fallback' ? 'Fallback PDF · ' : ''}${Object.keys(edits).length + addedBoxes.length} change${Object.keys(edits).length + addedBoxes.length === 1 ? '' : 's'} · ${addedBoxes.length} added text box${addedBoxes.length === 1 ? '' : 'es'}`
                     : 'Text editing preview · Open your own PDF'))}
       </div>
       {loading && (

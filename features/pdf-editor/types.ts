@@ -266,6 +266,9 @@ export type DocumentSession = {
   pdf: any;
   pdfBytes: Uint8Array;
   isXfaDocument: boolean;
+  xfaViewMode?: 'xfa' | 'fallback';
+  xfaCounterpartId?: string;
+  xfaSourceBytes?: Uint8Array;
   xfaChanged: boolean;
   xfaFields: Record<string, XfaTemplateEdit>;
   xfaStructureEdits: Record<string, XfaTemplateEdit>;

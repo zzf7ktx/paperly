@@ -2,6 +2,7 @@
 
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
+  readNativeXfaPackets,
   readNativeXfaTemplateModel,
   readNativeXfaTemplateScripts,
   type XfaScriptMetadata,
@@ -198,12 +199,16 @@ export function useDocumentSessions({
 }: Context) {
   const saveActiveDocument = () => {
     if (!activeDocumentId || !pdfBytes || !pdfRef.current) return;
+    const previousSession = documentSessionsRef.current.get(activeDocumentId);
     documentSessionsRef.current.set(activeDocumentId, {
       id: activeDocumentId,
       name: fileName,
       pdf: pdfRef.current,
       pdfBytes,
       isXfaDocument,
+      xfaViewMode: previousSession?.xfaViewMode,
+      xfaCounterpartId: previousSession?.xfaCounterpartId,
+      xfaSourceBytes: previousSession?.xfaSourceBytes,
       xfaChanged,
       xfaFields,
       xfaStructureEdits,
@@ -364,7 +369,7 @@ export function useDocumentSessions({
     setTool('select');
   };
 
-  const openFile = async (file?: File, options?: { prepareOnly?: boolean }) => {
+  const openFile = async (file?: File, options?: { prepareOnly?: boolean; forceFallback?: boolean }) => {
     if (!file) return;
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
       setError('Please choose a PDF document.');
@@ -386,10 +391,11 @@ export function useDocumentSessions({
       pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
       const pdf = await pdfjs.getDocument({
         data: bytes.slice(),
-        enableXfa: true,
+        enableXfa: !options?.forceFallback,
         wasmUrl: new URL('pdfjs/wasm/', document.baseURI).href,
       }).promise;
-      const pureXfa = Boolean(pdf.isPureXfa);
+      const pureXfa = !options?.forceFallback && Boolean(pdf.isPureXfa);
+      const xfaPackets = await readNativeXfaPackets(bytes).catch(() => []);
       let scriptMetadata: Record<string, XfaScriptMetadata> = {};
       let templateModel: XfaTemplateModel = { nodes: [], fields: [], draws: [], regions: [], warnings: [] };
       if (pureXfa) {
@@ -591,6 +597,8 @@ export function useDocumentSessions({
         pdf,
         pdfBytes: bytes,
         isXfaDocument: pureXfa,
+        xfaViewMode: pureXfa ? 'xfa' : xfaPackets.length ? 'fallback' : undefined,
+        xfaSourceBytes: pureXfa || xfaPackets.length ? bytes.slice() : undefined,
         xfaChanged: false,
         xfaFields: {},
         xfaStructureEdits: {},
@@ -644,6 +652,7 @@ export function useDocumentSessions({
       setBlockVisuals({});
       setTool('select');
       setZoom(1);
+      return session;
     } catch (reason) {
       if (options?.prepareOnly) throw reason;
       console.error(reason);

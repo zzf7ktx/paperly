@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
+  <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+    <subform name="Form" layout="tb" locale="en_US">
+      <pageSet>
+        <pageArea name="Page1">
+          <medium short="612pt" long="792pt" orientation="portrait"/>
+          <contentArea name="Body" x="36pt" y="36pt" w="540pt" h="720pt"/>
+        </pageArea>
+      </pageSet>
+      <subform name="Division" layout="tb" w="540pt">
+        <occur min="1" initial="3" max="-1"/>
+        <field name="Licenses" w="180pt" h="24pt"><ui><numericEdit/></ui></field>
+        <field name="Price" w="180pt" h="24pt"><ui><numericEdit/></ui></field>
+        <field name="Total" w="180pt" h="24pt">
+          <calculate><script contentType="application/x-javascript">Licenses.rawValue * Price.rawValue</script></calculate>
+          <ui><numericEdit/></ui>
+        </field>
+      </subform>
+    </subform>
+  </template>
+  <xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/"><xfa:data/></xfa:datasets>
+</xdp:xdp>

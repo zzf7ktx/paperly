@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
+  <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+    <subform name="Form" layout="tb" locale="en_US">
+      <pageSet>
+        <pageArea name="Page1">
+          <medium short="612pt" long="792pt" orientation="portrait"/>
+          <contentArea name="Body" x="36pt" y="36pt" w="540pt" h="720pt"/>
+        </pageArea>
+      </pageSet>
+      <subform name="Page" w="540pt" h="720pt">
+        <draw name="Heading" w="300pt" h="24pt"><value><text>Paperly XFA compatibility form</text></value></draw>
+        <field name="CustomerName" w="240pt" h="24pt">
+          <caption reserve="90pt"><value><text>Customer name</text></value></caption>
+          <ui><textEdit/></ui>
+        </field>
+      </subform>
+    </subform>
+  </template>
+  <xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/"><xfa:data/></xfa:datasets>
+</xdp:xdp>

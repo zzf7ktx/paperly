@@ -49,7 +49,13 @@ export default defineConfig(async () => {
 
   return {
     css: { postcss: { plugins: [tailwindcss()] } },
-    server: isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : undefined,
+    server: {
+      // Vite 8 console forwarding can send before its HMR WebSocket is ready when
+      // the dev server is reached through a Codespaces port-forwarding proxy.
+      // Keep HMR itself enabled, but let the browser console report errors locally.
+      forwardConsole: false,
+      ...(isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : {}),
+    },
     plugins: [
       vinext(),
       ...(existsSync(hostingConfigPath) ? [sites()] : []),

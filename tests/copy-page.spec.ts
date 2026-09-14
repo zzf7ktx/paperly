@@ -50,7 +50,9 @@ test('copy edited page to another tab preserves both documents and destination u
   await expect(page.locator('.page-item')).toHaveCount(3);
   await expect(page.locator('.thumbnail-canvas.is-ready')).toHaveCount(3, { timeout: 60_000 });
   await page.locator('.page-rail').screenshot({ path: testInfo.outputPath('pages-light.png') });
+  await page.getByRole('button', { name: 'More application options' }).click();
   await page.getByRole('button', { name: 'Theme: system. Click to change.' }).click();
+  await page.getByRole('button', { name: 'More application options' }).click();
   await page.getByRole('button', { name: 'Theme: light. Click to change.' }).click();
   await page.locator('.page-rail').screenshot({ path: testInfo.outputPath('pages-dark.png') });
   await page.getByRole('button', { name: 'Copy page 2 to tab', exact: true }).click();

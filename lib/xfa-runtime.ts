@@ -4,10 +4,11 @@ export type XfaRuntimeResult = {
   updates: Record<string, string | number | boolean | null>;
   result?: unknown;
   error?: string;
+  warnings?: string[];
 };
 
 export const xfaRuntimeWorkerSource = String.raw`
-const blocked = ['fetch','XMLHttpRequest','WebSocket','EventSource','WebTransport','BroadcastChannel','importScripts','indexedDB','caches'];
+const blocked = ['fetch','XMLHttpRequest','WebSocket','EventSource','WebTransport','BroadcastChannel','importScripts','indexedDB','caches','Worker','SharedWorker','FileReader','FileReaderSync'];
 for (const name of blocked) {
   try { Object.defineProperty(self, name, { value: undefined, configurable: false, writable: false }); } catch {}
 }
@@ -26,6 +27,7 @@ function translateFormCalc(source) {
 
 function run({ code, language, fieldName, fieldKey, aliases, values, mode }) {
   const updates = {};
+  const warnings = [];
   const instanceOf = key => String(key).match(/:instance:(\d+)$/)?.[1];
   const pathOf = key => {
     const match = String(key).match(/^\d+:field:(.*):instance:\d+$/);
@@ -41,14 +43,23 @@ function run({ code, language, fieldName, fieldKey, aliases, values, mode }) {
     const samePage = String(candidate).split(':', 1)[0] === String(fieldKey).split(':', 1)[0];
     return (sameInstance ? 10000 : 0) + sharedParents * 100 + (samePage ? 10 : 0);
   };
-  const resolveName = path => {
-    const cleaned = String(path || '').replace(/\[(\d+)\]/g, '').replace(/^\$record\./, '');
-    if (Object.prototype.hasOwnProperty.call(values, cleaned)) return cleaned;
+  const resolveNames = path => {
+    const raw = String(path || '').replace(/^\$record\./, '').replace(/^(\$\.?|\.?)?(parent\.)+/, '');
+    const requestedIndexes = Array.from(raw.matchAll(/\[(\d+)\]/g), match => Number(match[1]));
+    const cleaned = raw.replace(/\[(\d+)\]/g, '');
+    if (Object.prototype.hasOwnProperty.call(values, cleaned)) return [cleaned];
     const tail = cleaned.split('.').filter(Boolean).at(-1) || cleaned;
     const candidates = aliases?.[cleaned] || aliases?.[tail] || [];
-    if (candidates.includes(fieldKey)) return fieldKey;
-    return candidates.toSorted((left, right) => candidateScore(right) - candidateScore(left))[0] || Object.keys(values).find(name => name === tail || name.endsWith('.' + tail)) || tail;
+    const requestedInstance = requestedIndexes.length > 1 ? requestedIndexes.at(-2) : requestedIndexes.at(-1);
+    const ordered = candidates.toSorted((left, right) => candidateScore(right) - candidateScore(left));
+    if (requestedInstance !== undefined) {
+      const indexed = ordered.find(candidate => Number(instanceOf(candidate)) === requestedInstance);
+      if (indexed) return [indexed];
+    }
+    if (candidates.includes(fieldKey)) return [fieldKey, ...ordered.filter(candidate => candidate !== fieldKey)];
+    return ordered.length ? ordered : [Object.keys(values).find(name => name === tail || name.endsWith('.' + tail)) || tail];
   };
+  const resolveName = path => resolveNames(path)[0];
   const field = name => ({
     get rawValue() { return Object.prototype.hasOwnProperty.call(updates, name) ? updates[name] : values[name] ?? null; },
     set rawValue(value) { updates[name] = value; },
@@ -59,7 +70,7 @@ function run({ code, language, fieldName, fieldKey, aliases, values, mode }) {
   const current = field(fieldKey);
   const xfa = Object.freeze({
     resolveNode(path) { return field(resolveName(path)); },
-    resolveNodes(path) { return [field(resolveName(path))]; },
+    resolveNodes(path) { return resolveNames(path).map(field); },
   });
   const helpers = {
     Sum: (...items) => items.flat().reduce((sum, value) => sum + (Number(value?.rawValue ?? value) || 0), 0),
@@ -72,6 +83,10 @@ function run({ code, language, fieldName, fieldKey, aliases, values, mode }) {
     Ceil: value => Math.ceil(Number(value)),
   };
   const fieldNames = Object.keys(aliases || {}).filter(name => /^[A-Za-z_$][\w$]*$/.test(name) && !(name in helpers) && !['xfa','event'].includes(name));
+  for (const name of fieldNames) {
+    if ((aliases[name]?.length || 0) > 1 && new RegExp('\\b' + name + '\\b').test(code) && !new RegExp('\\b' + name + '\\s*\\[').test(code))
+      warnings.push('Ambiguous reference "' + name + '" resolved to ' + resolveName(name) + '.');
+  }
   const parameters = ['xfa', '$', 'event', ...Object.keys(helpers), ...fieldNames];
   const argumentsList = [xfa, current, { name: fieldName, value: current.rawValue }, ...Object.values(helpers), ...fieldNames.map(name => field(resolveName(name)))];
   let source = language === 'formcalc' ? translateFormCalc(code) : code;
@@ -80,7 +95,7 @@ function run({ code, language, fieldName, fieldKey, aliases, values, mode }) {
   const fn = new Function(...parameters, '"use strict";\n' + source);
   const result = fn.call(current, ...argumentsList);
   if (mode === 'calculate' && result !== undefined && !Object.prototype.hasOwnProperty.call(updates, fieldKey)) updates[fieldKey] = result;
-  return { updates, result };
+  return { updates, result, warnings };
 }
 
 self.onmessage = event => {

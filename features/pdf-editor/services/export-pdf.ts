@@ -16,6 +16,7 @@ type Context = Pick<
   EditorState,
   | 'uploadRef'
   | 'pdfRef'
+  | 'xfaLayerRef'
   | 'fileName'
   | 'pdfBytes'
   | 'isXfaDocument'
@@ -48,6 +49,7 @@ export async function exportDocument(
   const {
     uploadRef,
     pdfRef,
+    xfaLayerRef,
     fileName,
     pdfBytes,
     isXfaDocument,
@@ -82,6 +84,17 @@ export async function exportDocument(
     setError('');
   }
   try {
+    if (isXfaDocument) {
+      const invalid = Array.from(
+        xfaLayerRef.current?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+          '.xfaField input, .xfaField textarea, .xfaField select',
+        ) || [],
+      ).filter((control) => (control.required && !control.value.trim()) || !control.checkValidity());
+      if (invalid.length) {
+        invalid[0].focus();
+        throw new Error(`${invalid.length} required or typed XFA value${invalid.length === 1 ? '' : 's'} must be corrected before export.`);
+      }
+    }
     const {
       PDFDocument,
       PDFHexString,

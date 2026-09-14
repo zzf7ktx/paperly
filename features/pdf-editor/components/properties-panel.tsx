@@ -38,6 +38,8 @@ type Props = {
     | 'liveXfaScripts'
     | 'setLiveXfaScripts'
     | 'xfaRuntimeStatus'
+    | 'xfaScriptMetadata'
+    | 'scheduleXfaRuntimeRef'
     | 'pages'
     | 'currentPage'
     | 'zoom'
@@ -181,6 +183,8 @@ export function PropertiesPanel({ editor }: Props) {
     liveXfaScripts,
     setLiveXfaScripts,
     xfaRuntimeStatus,
+    xfaScriptMetadata,
+    scheduleXfaRuntimeRef,
     pages,
     currentPage,
     zoom,
@@ -640,6 +644,7 @@ export function PropertiesPanel({ editor }: Props) {
                   {activeXfaField.bindRef && (
                     <span title={activeXfaField.bindRef}>Bind: {activeXfaField.bindRef}</span>
                   )}
+                  <span title={activeXfaField.bindRef || activeXfaField.name}>Data node: {activeXfaField.bindRef || activeXfaField.name}</span>
                   {activeXfaField.prototype && <span>Prototype instance</span>}
                   {activeXfaField.repeatMax !== undefined && (
                     <span>
@@ -963,6 +968,7 @@ export function PropertiesPanel({ editor }: Props) {
                   <button
                     className={liveXfaScripts ? 'active' : ''}
                     onClick={() => {
+                      if (!liveXfaScripts && !window.confirm('Enable embedded XFA scripts for this document? Scripts run locally in an isolated, time-limited worker.')) return;
                       setLiveXfaScripts((enabled) => !enabled);
                       if (liveXfaScripts)
                         xfaLayerRef.current
@@ -978,6 +984,35 @@ export function PropertiesPanel({ editor }: Props) {
                   {xfaRuntimeStatus}. Common JavaScript and FormCalc run in an isolated, network-blocked
                   worker with a time limit.
                 </small>
+                {Object.keys(xfaScriptMetadata).length > 0 && (
+                  <details className="xfa-embedded-scripts">
+                    <summary>
+                      <span><b>Embedded scripts</b><small>Inspect before enabling</small></span>
+                      <em>{Object.values(xfaScriptMetadata).reduce((count, metadata) => count + (metadata.calculation ? 1 : 0) + (metadata.validation ? 1 : 0) + Object.keys(metadata.events).length, 0)}</em>
+                    </summary>
+                    <div className="xfa-script-list">
+                      {Object.entries(xfaScriptMetadata).map(([field, metadata]) => {
+                        const scripts = [
+                          ...(metadata.calculation ? [{ activity: 'Calculate', script: metadata.calculation }] : []),
+                          ...(metadata.validation ? [{ activity: 'Validate', script: metadata.validation }] : []),
+                          ...Object.entries(metadata.events).map(([activity, script]) => ({ activity, script })),
+                        ];
+                        return (
+                          <article key={field} className="xfa-script-card">
+                            <header><strong title={field}>{field.replace(/:(\d+)$/, ' · instance $1')}</strong><span>{scripts.length}</span></header>
+                            {scripts.map(({ activity, script }, index) => (
+                              <section key={`${activity}-${index}`}>
+                                <div><b>{activity}</b><em>{script.language === 'formcalc' ? 'FormCalc' : 'JavaScript'}</em></div>
+                                <pre>{script.code}</pre>
+                              </section>
+                            ))}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </details>
+                )}
+                {liveXfaScripts && <button className="xfa-recalculate" onClick={() => scheduleXfaRuntimeRef.current(undefined, 'recalculate')}>Recalculate fields</button>}
               </section>
             )}
             <XfaDrawProperties editor={editor} />

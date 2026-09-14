@@ -123,6 +123,19 @@ export function useXfaRendering({
           }
         };
         const allFields = Object.values(descriptors).filter((field) => !field.deleted);
+        const repeatedGroups = new Map<string, Map<string, number>>();
+        for (const field of allFields) {
+          if (!field.parentPath) continue;
+          const counts = repeatedGroups.get(field.parentPath) || new Map<string, number>();
+          counts.set(field.name, (counts.get(field.name) || 0) + 1);
+          repeatedGroups.set(field.parentPath, counts);
+        }
+        for (const [parentPath, counts] of repeatedGroups) {
+          const expected = Math.max(...counts.values());
+          if (expected <= 1) continue;
+          for (const [name, count] of counts)
+            if (count < expected) errors.push(`${parentPath}: ${name} is missing from ${expected - count} repeated instance${expected - count === 1 ? '' : 's'}.`);
+        }
         const pageFields = allFields.filter((field) => field.page === currentPage);
         allFields.forEach((field) => {
           if (field.added && !Object.prototype.hasOwnProperty.call(values, field.key))
@@ -162,22 +175,64 @@ export function useXfaRendering({
             }
           }
         }
-        for (let pass = 0; pass < 2; pass += 1) {
-          for (const field of allFields) {
-            if (!field.calculation?.code) continue;
+        const calculatedFields = allFields.filter((field) => field.calculation?.code);
+        const calculatedByName = new Map<string, typeof calculatedFields>();
+        for (const field of calculatedFields)
+          calculatedByName.set(field.name, [...(calculatedByName.get(field.name) || []), field]);
+        const outgoing = new Map<string, Set<string>>();
+        const indegree = new Map(calculatedFields.map((field) => [field.key, 0]));
+        for (const field of calculatedFields) {
+          for (const [name, dependencies] of calculatedByName) {
+            if (!new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(field.calculation?.code || '')) continue;
+            for (const dependency of dependencies) {
+              if (outgoing.get(dependency.key)?.has(field.key)) continue;
+              (outgoing.get(dependency.key) || outgoing.set(dependency.key, new Set()).get(dependency.key))?.add(field.key);
+              indegree.set(field.key, (indegree.get(field.key) || 0) + 1);
+            }
+          }
+        }
+        const queue = calculatedFields.filter((field) => indegree.get(field.key) === 0);
+        const calculationOrder: typeof calculatedFields = [];
+        while (queue.length) {
+          const field = queue.shift();
+          if (!field) break;
+          calculationOrder.push(field);
+          for (const target of outgoing.get(field.key) || []) {
+            indegree.set(target, (indegree.get(target) || 1) - 1);
+            if (indegree.get(target) === 0) {
+              const next = calculatedFields.find((candidate) => candidate.key === target);
+              if (next) queue.push(next);
+            }
+          }
+        }
+        const cyclicFields = calculatedFields.filter((field) => !calculationOrder.includes(field));
+        calculationOrder.push(...cyclicFields);
+        if (cyclicFields.length) errors.push(`Circular calculation dependency detected: ${cyclicFields.map((field) => field.name).join(', ')}.`);
+        let calculationChanged = false;
+        let pass = 0;
+        for (; pass < 10; pass += 1) {
+          calculationChanged = false;
+          for (const field of calculationOrder) {
+            const calculation = field.calculation;
+            if (!calculation) continue;
             const result = await executeXfaScript({
-              code: field.calculation.code,
-              language: field.calculation.language,
+              code: calculation.code,
+              language: calculation.language,
               fieldName: field.name,
               fieldKey: field.key,
               aliases,
               values,
               mode: 'calculate',
             });
+            for (const [key, value] of Object.entries(result.updates))
+              if (values[key] !== value) calculationChanged = true;
             mergeUpdates(result.updates);
+            if (result.warnings?.length && pass === 0) errors.push(...result.warnings);
             if (result.error && pass === 0) errors.push(`${field.name} calculation: ${result.error}`);
           }
+          if (!calculationChanged) break;
         }
+        if (calculationChanged) errors.push('Calculations did not stabilize after 10 passes; check for a circular dependency.');
         if (revision !== xfaRuntimeRevisionRef.current) return;
         xfaApplyingValuesRef.current = true;
         wrappers.forEach((wrapper) => {

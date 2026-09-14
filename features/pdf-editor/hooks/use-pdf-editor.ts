@@ -25,13 +25,21 @@ import { usePdfRendering } from './use-pdf-rendering';
 
 import { useEditorHistory } from './use-editor-history';
 
-import { useCallback, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { sampleTextBlockVisual } from '../lib/appearance';
 import { blockKey } from '../lib/text';
 import { sanitizeXfaRichHtml } from '../lib/xfa-dom';
+import {
+  applyNativeXfaTemplateEdits,
+  attachXfaToFallbackPdf,
+  composeXdp,
+  createXfaPdfFromXdp,
+  extractEmbeddedXfaFallbackPdf,
+  readNativeXfaPackets,
+} from '../../../lib/xfa-template';
 import { exportDocument } from '../services/export-pdf';
 import { recognizeText } from '../services/recognize-text';
-import type { AddedTextBox, SnapGuides, TextBlock } from '../types';
+import type { AddedTextBox, FormBlock, SnapGuides, TextBlock } from '../types';
 import { useEditorState } from './use-editor-state';
 
 export function usePdfEditor() {
@@ -48,8 +56,10 @@ export function usePdfEditor() {
     xfaLayerRef,
     canvasWrapRef,
     pdfRef,
+    documentSessionsRef,
     marqueeSuppressClickRef,
     scheduleXfaRuntimeRef,
+    fileName,
     documentTabs,
     activeDocumentId,
     combineTitleAndTabs,
@@ -77,7 +87,9 @@ export function usePdfEditor() {
     liveXfaScripts,
     setLiveXfaScripts,
     xfaRuntimeStatus,
+    xfaScriptMetadata,
     pages,
+    setPages,
     currentPage,
     setCurrentPage,
     zoom,
@@ -281,9 +293,167 @@ export function usePdfEditor() {
 
   useXfaRendering({ ...state });
 
-  const { switchDocument, closeDocument, openFile, prepareDocument } = useDocumentSessions({ ...state });
-  const { changePages, insertPdfFiles, copyPageToTab } = usePageManagement(state, prepareDocument, recordHistory,
-    () => exportDocument({ ...state, vectorBackgroundForText }, { bytesOnly: true }));
+  const {
+    switchDocument: switchDocumentSession,
+    closeDocument,
+    openFile: openDocumentFile,
+    prepareDocument,
+  } = useDocumentSessions({ ...state });
+  const [switchingXfaView, setSwitchingXfaView] = useState(false);
+  const activeSession = activeDocumentId ? documentSessionsRef.current.get(activeDocumentId) : undefined;
+  const xfaViewMode = activeSession?.xfaViewMode;
+
+  const switchDocument = (id: string) => switchDocumentSession(id);
+  const openFile = async (file?: File) => openDocumentFile(file);
+
+  const createRenderedFallback = async (sourcePdf = pdfRef.current) => {
+    if (!sourcePdf) throw new Error('The XFA form is not available.');
+    const { PDFDocument } = await import('pdf-lib');
+    const output = await PDFDocument.create();
+    for (let index = 1; index <= sourcePdf.numPages; index += 1) {
+      const sourcePage = await sourcePdf.getPage(index);
+      const viewport = sourcePage.getViewport({ scale: 1 });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('The fallback page could not be rendered.');
+      await sourcePage.render({ canvasContext: context, viewport }).promise;
+      const image = await output.embedJpg(canvas.toDataURL('image/jpeg', 0.9));
+      const page = output.addPage([viewport.width, viewport.height]);
+      page.drawImage(image, { x: 0, y: 0, width: page.getWidth(), height: page.getHeight() });
+    }
+    return output.save();
+  };
+
+  const makeStaticSessionEditable = (session: typeof activeSession) => {
+    if (!session) return;
+    const editableDraws = Object.values({ ...xfaDraws, ...xfaDrawEdits }).filter(
+      (draw) => draw.kind === 'text' && !draw.deleted && draw.text?.trim(),
+    );
+    const editableFields = Object.values({ ...xfaFields, ...xfaStructureEdits }).filter(
+      (field) => !field.deleted && ['text', 'multiline', 'numeric', 'decimal', 'date', 'choice', 'checkbox', 'radio'].includes(field.kind),
+    );
+    const editablePages = session.pages.map((page, pageIndex) => ({
+      ...page,
+      blocks: [
+        ...page.blocks,
+        ...editableDraws.filter((draw) => draw.page === pageIndex).map((draw, index) => ({
+          id: 1_000_000 + index, str: draw.text || '', x: draw.x, top: draw.top,
+          width: draw.width, height: draw.height, fontSize: draw.size || 11,
+          baseline: draw.top + (draw.size || 11), editorTop: draw.top, horizontalScale: 1,
+          font: draw.font || 'Helvetica', sourceFont: draw.font || 'Helvetica',
+          cssFont: draw.font || 'Helvetica', letterSpacing: 0, bold: Boolean(draw.bold), italic: Boolean(draw.italic),
+        })),
+      ],
+      forms: [
+        ...page.forms,
+        ...editableFields.filter((field) => field.page === pageIndex).map((field) => ({
+          id: `xfa-static:${field.key}`, name: field.name,
+          kind: (field.kind === 'checkbox' || field.kind === 'radio' || field.kind === 'choice' ? field.kind : 'text') as FormBlock['kind'],
+          x: field.x, top: field.top, width: field.width, height: field.height,
+          value: field.value ?? '', multiline: field.kind === 'multiline', fontSize: field.size,
+          font: field.font, color: field.color, backgroundColor: field.backgroundColor,
+          borderColor: field.borderColor, borderWidth: field.borderWidth, alignment: field.alignment,
+        })),
+      ],
+    }));
+    session.pages = editablePages;
+    setPages(editablePages);
+  };
+
+  const openStaticPdf = async (file: File) => {
+    const session = await openDocumentFile(file);
+    makeStaticSessionEditable(session);
+  };
+
+  const switchXfaView = async (mode: 'xfa' | 'fallback') => {
+    if (!activeDocumentId || !activeSession || mode === xfaViewMode || switchingXfaView) return;
+    const counterpart = activeSession.xfaCounterpartId
+      ? documentSessionsRef.current.get(activeSession.xfaCounterpartId)
+      : undefined;
+    if (counterpart) {
+      switchDocumentSession(counterpart.id);
+      return;
+    }
+    setSwitchingXfaView(true);
+    try {
+      const sourceBytes = activeSession.xfaSourceBytes || activeSession.pdfBytes;
+      let nextBytes: Uint8Array;
+      let generatedFromXfaPages = false;
+      let useOriginalFallbackRenderer = false;
+      if (mode === 'xfa') {
+        const packets = await readNativeXfaPackets(sourceBytes);
+        if (!packets.length) throw new Error('No XFA packets were found in this PDF.');
+        const xdp = packets.length === 1 && packets[0].name === 'xdp' ? packets[0].xml : composeXdp(packets);
+        nextBytes = await createXfaPdfFromXdp(xdp, 'stream', false, false);
+      } else {
+        const embeddedFallback = await extractEmbeddedXfaFallbackPdf(sourceBytes);
+        if (embeddedFallback) {
+          nextBytes = sourceBytes.slice();
+          useOriginalFallbackRenderer = true;
+        }
+        else {
+          nextBytes = await createRenderedFallback();
+          generatedFromXfaPages = true;
+        }
+      }
+      const suffix = mode === 'xfa' ? 'XFA form' : 'Fallback PDF';
+      const fileBytes = nextBytes.slice().buffer as ArrayBuffer;
+      const file = new File([fileBytes], `${activeSession.name} — ${suffix}.pdf`, {
+        type: 'application/pdf',
+      });
+      const nextSession = await openDocumentFile(file, { forceFallback: useOriginalFallbackRenderer });
+      if (!nextSession) throw new Error(`The ${suffix.toLowerCase()} could not be opened.`);
+      nextSession.xfaViewMode = mode;
+      nextSession.xfaSourceBytes = sourceBytes.slice();
+      nextSession.xfaCounterpartId = activeSession.id;
+      activeSession.xfaCounterpartId = nextSession.id;
+      activeSession.xfaSourceBytes = sourceBytes.slice();
+      if (mode === 'fallback' && generatedFromXfaPages) {
+        makeStaticSessionEditable(nextSession);
+      }
+      documentSessionsRef.current.set(activeSession.id, activeSession);
+      documentSessionsRef.current.set(nextSession.id, nextSession);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The XFA view could not be changed.');
+    } finally {
+      setSwitchingXfaView(false);
+    }
+  };
+  const exportDocumentBytes = () =>
+    exportDocument({ ...state, vectorBackgroundForText }, { bytesOnly: true });
+  const exportXfaWithEditedFallback = async () => {
+    if (xfaViewMode !== 'fallback' || !activeSession?.xfaSourceBytes) {
+      setError('Switch to the fallback view of an XFA document first.');
+      return;
+    }
+    setSwitchingXfaView(true);
+    try {
+      const fallbackBytes = await exportDocumentBytes();
+      if (!fallbackBytes) throw new Error('The edited fallback could not be exported.');
+      const output = await attachXfaToFallbackPdf(fallbackBytes, activeSession.xfaSourceBytes);
+      const blob = new Blob([output.slice().buffer as ArrayBuffer], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${activeSession.name.replace(/\s+—\s+Fallback PDF$/i, '')}-xfa-with-fallback.pdf`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setToast('XFA copy exported with your edited fallback pages');
+      window.setTimeout(() => setToast(''), 3200);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The XFA copy could not be exported.');
+    } finally {
+      setSwitchingXfaView(false);
+    }
+  };
+  const { changePages, insertPdfFiles, copyPageToTab } = usePageManagement(
+    state,
+    prepareDocument,
+    recordHistory,
+    exportDocumentBytes,
+  );
 
   const {
     commit,
@@ -632,6 +802,27 @@ export function usePdfEditor() {
   };
 
   const exportPdf = () => exportDocument({ ...state, vectorBackgroundForText });
+  const getXfaXmlBytes = async () => {
+    if (!pdfBytes) throw new Error('Open an XFA PDF first.');
+    let originalBytes = pdfBytes.slice();
+    if (pdfRef.current?.saveDocument) {
+      try {
+        const serialized = await pdfRef.current.saveDocument();
+        if ((await readNativeXfaPackets(serialized)).length) originalBytes = serialized;
+      } catch (reason) {
+        console.warn('Current XFA values could not be serialized for XML inspection; using the opened PDF.', reason);
+      }
+    }
+    const templateEdits = Object.values(xfaStructureEdits);
+    const drawEdits = Object.values(xfaDrawEdits);
+    if (!templateEdits.length && !drawEdits.length) return originalBytes;
+    try {
+      return await applyNativeXfaTemplateEdits(originalBytes, templateEdits, drawEdits);
+    } catch (reason) {
+      console.warn('Edited XFA XML could not be prepared; showing the original packets.', reason);
+      return originalBytes;
+    }
+  };
 
   const toggleTitleAndTabs = () => {
     setCombineTitleAndTabs((combined) => {
@@ -646,6 +837,8 @@ export function usePdfEditor() {
   };
 
   return {
+    fileName,
+    setError,
     uploadRef,
     repeatDataFileRef,
     imageUploadRef,
@@ -667,7 +860,12 @@ export function usePdfEditor() {
     setJoinSplitCharacters,
     pdfBytes,
     isXfaDocument,
+    xfaViewMode,
+    switchingXfaView,
+    switchXfaView,
+    exportXfaWithEditedFallback,
     xfaChanged,
+    xfaFields,
     xfaStructureEdits,
     xfaDrawEdits,
     setSelectedXfaDrawKey,
@@ -682,6 +880,7 @@ export function usePdfEditor() {
     liveXfaScripts,
     setLiveXfaScripts,
     xfaRuntimeStatus,
+    xfaScriptMetadata,
     pages,
     currentPage,
     setCurrentPage,
@@ -847,6 +1046,7 @@ export function usePdfEditor() {
     copyPageToTab,
     closeDocument,
     openFile,
+    openStaticPdf,
     commit,
     selectExistingBlock,
     measureAddedBox,
@@ -917,6 +1117,8 @@ export function usePdfEditor() {
     undo,
     redo,
     exportPdf,
+    exportDocumentBytes,
+    getXfaXmlBytes,
     toggleTitleAndTabs,
   };
 }

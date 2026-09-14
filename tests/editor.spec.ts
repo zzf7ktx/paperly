@@ -1,6 +1,44 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
+
+async function changeTheme(page: Page, current: 'system' | 'light' | 'dark') {
+  await page.getByRole('button', { name: 'More application options' }).click();
+  await page.getByRole('button', { name: `Theme: ${current}. Click to change.` }).click();
+}
+
+test('creates a new blank PDF with the selected page setup', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'New PDF' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New PDF' });
+  await dialog.getByLabel('Page size').selectOption('letter');
+  await dialog.getByLabel('Orientation').selectOption('landscape');
+  await dialog.getByLabel('Pages').fill('3');
+  await dialog.getByRole('button', { name: 'Create PDF' }).click();
+  await expect(page.locator('.document-tab.active')).toContainText('Untitled');
+  await expect(page.getByRole('button', { name: /^Open page \d+$/ })).toHaveCount(3);
+  await expect(page.getByRole('button', { name: 'Add blank page' })).toBeEnabled();
+  await page.locator('.toolbar-popover > summary').filter({ hasText: 'View' }).click();
+  await page.getByRole('button').filter({ hasText: 'Tabs in title bar' }).click();
+  await page.getByRole('button', { name: 'Collapse properties panel' }).click();
+  const toolbarLayout = await page.locator('.header-actions').evaluate((toolbar) => {
+    const bounds = toolbar.getBoundingClientRect();
+    const children = Array.from(toolbar.children).map((child) => {
+      const item = child.getBoundingClientRect();
+      return { left: item.left, right: item.right, className: child.className };
+    });
+    return { left: bounds.left, right: bounds.right, viewport: window.innerWidth, children };
+  });
+  expect(toolbarLayout.left).toBeGreaterThanOrEqual(0);
+  expect(toolbarLayout.right).toBeLessThanOrEqual(toolbarLayout.viewport);
+  expect(toolbarLayout.children.every((item) => item.left >= 0 && item.right <= toolbarLayout.viewport)).toBe(true);
+  await page.getByRole('button', { name: 'More new and open options' }).click();
+  const menuIsOnTop = await page.locator('.header-file-menu').evaluate((menu) => {
+    const bounds = menu.getBoundingClientRect();
+    return menu.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2));
+  });
+  expect(menuIsOnTop).toBe(true);
+});
 
 test('custom palette stays above the picker and persists saved colors', async ({ page }, testInfo) => {
   const pdf = await PDFDocument.create();
@@ -34,8 +72,8 @@ test('custom palette stays above the picker and persists saved colors', async ({
   await control.screenshot({ path: testInfo.outputPath('custom-palette.png') });
   const savedSwatch = palette.getByRole('button', { name: 'Use custom color #123abc' });
   await expect(savedSwatch).toHaveCSS('background-color', 'rgb(18, 58, 188)');
-  await page.getByRole('button', { name: 'Theme: system. Click to change.' }).click();
-  await page.getByRole('button', { name: 'Theme: light. Click to change.' }).click();
+  await changeTheme(page, 'system');
+  await changeTheme(page, 'light');
   await expect(savedSwatch).toHaveCSS('background-color', 'rgb(18, 58, 188)');
   await control.screenshot({ path: testInfo.outputPath('custom-palette-dark.png') });
   await control.getByRole('button', { name: 'Text color', exact: true }).click();
@@ -47,9 +85,11 @@ test('demo, theme preference, and panel controls work', async ({ page }) => {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
   await expect(page.getByRole('article', { name: 'Example PDF preview' })).toBeVisible();
-  await page.getByRole('button', { name: 'Theme: system. Click to change.' }).click();
+  await changeTheme(page, 'system');
   await page.reload();
+  await page.getByRole('button', { name: 'More application options' }).click();
   await expect(page.getByRole('button', { name: 'Theme: light. Click to change.' })).toBeVisible();
+  await page.getByRole('button', { name: 'More application options' }).click();
   await page.getByRole('button', { name: 'Collapse pages panel' }).click();
   await expect(page.getByRole('button', { name: 'Expand pages panel' })).toBeVisible();
   await page.getByRole('button', { name: 'Expand pages panel' }).click();
@@ -146,8 +186,8 @@ test('the themed color picker supports swatches, HEX, RGB, and keyboard controls
   await page.screenshot({ path: testInfo.outputPath('color-picker-light.png') });
   await page.keyboard.press('Escape');
   // System -> light -> dark.
-  await page.getByRole('button', { name: 'Theme: system. Click to change.' }).click();
-  await page.getByRole('button', { name: 'Theme: light. Click to change.' }).click();
+  await changeTheme(page, 'system');
+  await changeTheme(page, 'light');
   await trigger.click();
   await expect(picker).toHaveClass(/paperly-color-dark/);
   await page.screenshot({ path: testInfo.outputPath('color-picker-dark.png') });
