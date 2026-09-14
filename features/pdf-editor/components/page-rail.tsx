@@ -71,12 +71,16 @@ export function PageRail({ editor }: Props) {
   const importMenu = useRef<HTMLDetailsElement>(null);
   const insertAfter = useRef(0);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const sizeDialogRef = useRef<HTMLDialogElement>(null);
   const [dragPage, setDragPage] = useState<number | null>(null);
   const [dropPage, setDropPage] = useState<number | null>(null);
   const [copyPage, setCopyPage] = useState<number | null>(null);
   const [targetId, setTargetId] = useState('');
   const [position, setPosition] = useState(0);
   const [copyFailed, setCopyFailed] = useState(false);
+  const [pageWidth, setPageWidth] = useState(595.28);
+  const [pageHeight, setPageHeight] = useState(841.89);
+  const [pageUnit, setPageUnit] = useState<'mm' | 'in' | 'pt'>('mm');
   const busy = editor.loading || editor.ocrBusy;
   const disabled = busy || editor.isXfaDocument;
   const targets = editor.documentTabs.filter((tab) => tab.id !== editor.activeDocumentId && !tab.isXfa);
@@ -90,6 +94,15 @@ export function PageRail({ editor }: Props) {
     insertAfter.current = after;
     if (importMenu.current) importMenu.current.open = false;
     importRef.current?.click();
+  };
+  const pageUnitScale = pageUnit === 'mm' ? 72 / 25.4 : pageUnit === 'in' ? 72 : 1;
+  const openPageSizeDialog = () => {
+    const page = pages[currentPage];
+    if (!page) return;
+    setPageWidth(page.width);
+    setPageHeight(page.height);
+    importMenu.current?.removeAttribute('open');
+    sizeDialogRef.current?.showModal();
   };
   const selectPage = (index: number) => {
     editor.setCurrentPage(index);
@@ -149,6 +162,9 @@ export function PageRail({ editor }: Props) {
                     aria-label="Combine PDFs"
                   >
                     Combine PDFs<small>Append files to this document</small>
+                  </button>
+                  <button disabled={disabled} onClick={openPageSizeDialog} aria-label="Resize current page">
+                    Resize current page<small>Set a custom page canvas</small>
                   </button>
                   <p>Imported form values become page content.</p>
                 </div>
@@ -357,6 +373,85 @@ export function PageRail({ editor }: Props) {
             </button>
             <button className="copy-page-submit" type="submit" disabled={busy || !target}>
               {busy ? 'Copying…' : 'Copy page'}
+            </button>
+          </div>
+        </form>
+      </dialog>
+      <dialog
+        ref={sizeDialogRef}
+        className="copy-page-dialog page-size-dialog"
+        aria-labelledby="page-size-title"
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void editor.changePages({
+              kind: 'resize',
+              index: currentPage,
+              width: pageWidth,
+              height: pageHeight,
+            });
+            sizeDialogRef.current?.close();
+          }}
+        >
+          <div className="copy-page-heading">
+            <div>
+              <h2 id="page-size-title">Resize page {currentPage + 1}</h2>
+              <p>Change the canvas while keeping content anchored at the top-left.</p>
+            </div>
+            <button
+              type="button"
+              aria-label="Close page size dialog"
+              onClick={() => sizeDialogRef.current?.close()}
+            >
+              Ã—
+            </button>
+          </div>
+          <label>
+            Unit
+            <select value={pageUnit} onChange={(event) => setPageUnit(event.target.value as typeof pageUnit)}>
+              <option value="mm">Millimetres</option>
+              <option value="in">Inches</option>
+              <option value="pt">Points</option>
+            </select>
+          </label>
+          <div className="page-size-fields">
+            <label>
+              Width
+              <input
+                aria-label="Page width"
+                type="number"
+                min={36 / pageUnitScale}
+                max={14400 / pageUnitScale}
+                step={pageUnit === 'pt' ? 1 : 0.1}
+                value={Number((pageWidth / pageUnitScale).toFixed(2))}
+                onChange={(event) => setPageWidth(Number(event.target.value) * pageUnitScale)}
+              />
+            </label>
+            <label>
+              Height
+              <input
+                aria-label="Page height"
+                type="number"
+                min={36 / pageUnitScale}
+                max={14400 / pageUnitScale}
+                step={pageUnit === 'pt' ? 1 : 0.1}
+                value={Number((pageHeight / pageUnitScale).toFixed(2))}
+                onChange={(event) => setPageHeight(Number(event.target.value) * pageUnitScale)}
+              />
+            </label>
+          </div>
+          <p className="copy-page-note">Reducing the size can crop content along the right or bottom edge.</p>
+          <div className="copy-page-footer">
+            <button type="button" onClick={() => sizeDialogRef.current?.close()}>
+              Cancel
+            </button>
+            <button
+              className="copy-page-submit"
+              type="submit"
+              disabled={pageWidth < 36 || pageHeight < 36 || pageWidth > 14400 || pageHeight > 14400}
+            >
+              Resize page
             </button>
           </div>
         </form>

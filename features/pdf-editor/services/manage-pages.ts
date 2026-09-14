@@ -2,6 +2,7 @@ import { PDFDocument } from 'pdf-lib';
 
 export type PageOperation =
   | { kind: 'blank'; after: number }
+  | { kind: 'resize'; index: number; width: number; height: number }
   | { kind: 'remove'; index: number }
   | { kind: 'move'; from: number; to: number }
   | { kind: 'insert'; after: number; files: Uint8Array[] };
@@ -26,6 +27,17 @@ export async function managePages(bytes: Uint8Array, operation: PageOperation) {
     document.removePage(operation.index);
     order.splice(operation.index, 1);
     selected = Math.min(operation.index, order.length - 1);
+  } else if (operation.kind === 'resize') {
+    if (!valid(operation.index)) throw new Error('Choose a valid page to resize.');
+    if (operation.width < 36 || operation.height < 36 || operation.width > 14400 || operation.height > 14400)
+      throw new Error('Page dimensions must be between 0.5 and 200 inches.');
+    const page = original[operation.index];
+    const mediaBox = page.getMediaBox();
+    const top = mediaBox.y + mediaBox.height;
+    const nextY = top - operation.height;
+    page.setMediaBox(mediaBox.x, nextY, operation.width, operation.height);
+    page.setCropBox(mediaBox.x, nextY, operation.width, operation.height);
+    selected = operation.index;
   } else if (operation.kind === 'move') {
     if (!valid(operation.from) || !valid(operation.to)) throw new Error('Choose a valid page position.');
     const moved = original[operation.from];

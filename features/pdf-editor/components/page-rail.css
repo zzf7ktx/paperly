@@ -289,7 +289,7 @@
   font-size: 12px;
   font-weight: 600;
 }
-.copy-page-dialog select {
+.copy-page-dialog :is(select, input) {
   display: block;
   width: 100%;
   margin-top: 7px;
@@ -300,6 +300,11 @@
   color: var(--page-ink);
   font: inherit;
   font-weight: 400;
+}
+.page-size-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 .copy-page-note {
   margin: 16px 0;

@@ -31,13 +31,46 @@ test('creates a new blank PDF with the selected page setup', async ({ page }) =>
   });
   expect(toolbarLayout.left).toBeGreaterThanOrEqual(0);
   expect(toolbarLayout.right).toBeLessThanOrEqual(toolbarLayout.viewport);
-  expect(toolbarLayout.children.every((item) => item.left >= 0 && item.right <= toolbarLayout.viewport)).toBe(true);
+  expect(toolbarLayout.children.every((item) => item.left >= 0 && item.right <= toolbarLayout.viewport)).toBe(
+    true,
+  );
   await page.getByRole('button', { name: 'More new and open options' }).click();
   const menuIsOnTop = await page.locator('.header-file-menu').evaluate((menu) => {
     const bounds = menu.getBoundingClientRect();
-    return menu.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2));
+    return menu.contains(
+      document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2),
+    );
   });
   expect(menuIsOnTop).toBe(true);
+});
+
+test('creates a custom-size PDF and resizes its current page', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'New PDF' }).click();
+  const newPdf = page.getByRole('dialog', { name: 'New PDF' });
+  await newPdf.getByLabel('Page size').selectOption('custom');
+  await newPdf.getByLabel('Unit').selectOption('in');
+  await newPdf.getByLabel('Width').fill('4');
+  await newPdf.getByLabel('Height').fill('2');
+  await newPdf.getByRole('button', { name: 'Create PDF' }).click();
+
+  const livePage = page.locator('.live-page');
+  await expect(livePage).toHaveCSS('width', '288px');
+  await expect(livePage).toHaveCSS('height', '144px');
+
+  await page.getByLabel('Import pages').click();
+  await page.getByRole('button', { name: 'Resize current page' }).click();
+  const resize = page.getByRole('dialog', { name: 'Resize page 1' });
+  await resize.getByLabel('Unit').selectOption('in');
+  await expect(resize.getByLabel('Page width')).toHaveValue('4');
+  await expect(resize.getByLabel('Page height')).toHaveValue('2');
+  await resize.getByLabel('Page width').fill('5');
+  await resize.getByLabel('Page height').fill('3');
+  await resize.getByRole('button', { name: 'Resize page' }).click();
+
+  await expect(page.locator('.loading-overlay')).toBeHidden({ timeout: 60_000 });
+  await expect(livePage).toHaveCSS('width', '360px');
+  await expect(livePage).toHaveCSS('height', '216px');
 });
 
 test('custom palette stays above the picker and persists saved colors', async ({ page }, testInfo) => {
@@ -45,7 +78,9 @@ test('custom palette stays above the picker and persists saved colors', async ({
   pdf.addPage().drawText('Palette sample');
   const buffer = Buffer.from(await pdf.save());
   const openDocument = async () => {
-    await page.locator('input[type="file"][accept="application/pdf,.pdf"]').setInputFiles({ name: 'palette.pdf', mimeType: 'application/pdf', buffer });
+    await page
+      .locator('input[type="file"][accept="application/pdf,.pdf"]')
+      .setInputFiles({ name: 'palette.pdf', mimeType: 'application/pdf', buffer });
     await page.locator('.text-layer [contenteditable="true"]').filter({ hasText: 'Palette sample' }).click();
     await page.locator('.property-tabs').getByRole('button', { name: 'Style', exact: true }).click();
   };
@@ -60,7 +95,9 @@ test('custom palette stays above the picker and persists saved colors', async ({
   await page.keyboard.press('Escape');
   await palette.getByRole('button', { name: 'Save current color to palette' }).click();
   await expect(palette.getByRole('button', { name: 'Use custom color #123abc' })).toBeVisible();
-  const positions = await palette.locator(':scope > *').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().y));
+  const positions = await palette
+    .locator(':scope > *')
+    .evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().y));
   expect(new Set(positions).size).toBe(1);
   const bounds = await palette.boundingBox();
   const row = await control.locator('.color-row').boundingBox();

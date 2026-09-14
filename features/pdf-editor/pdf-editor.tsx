@@ -53,9 +53,12 @@ export default function PdfEditor() {
   const newPdfDialogRef = useRef<HTMLDialogElement>(null);
   const fileMenuRef = useRef<HTMLDetailsElement>(null);
   const moreMenuRef = useRef<HTMLDetailsElement>(null);
-  const [newPdfSize, setNewPdfSize] = useState<'a4' | 'letter' | 'legal'>('a4');
+  const [newPdfSize, setNewPdfSize] = useState<'a4' | 'letter' | 'legal' | 'custom'>('a4');
   const [newPdfOrientation, setNewPdfOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [newPdfPages, setNewPdfPages] = useState(1);
+  const [newPdfCustomWidth, setNewPdfCustomWidth] = useState(210);
+  const [newPdfCustomHeight, setNewPdfCustomHeight] = useState(297);
+  const [newPdfCustomUnit, setNewPdfCustomUnit] = useState<'mm' | 'in' | 'pt'>('mm');
   const [updateStatus, setUpdateStatus] = useState<
     'idle' | 'loading' | 'latest' | 'available' | 'downloading' | 'downloaded' | 'error'
   >('idle');
@@ -125,24 +128,41 @@ export default function PdfEditor() {
     });
   }, []);
 
+  const newPdfUnitScale = { mm: 72 / 25.4, in: 72, pt: 1 }[newPdfCustomUnit];
+  const customWidthPoints = newPdfCustomWidth * newPdfUnitScale;
+  const customHeightPoints = newPdfCustomHeight * newPdfUnitScale;
+  const customSizeValid =
+    customWidthPoints >= 36 &&
+    customHeightPoints >= 36 &&
+    customWidthPoints <= 14400 &&
+    customHeightPoints <= 14400;
+
   const createNewPdf = async () => {
+    if (newPdfSize === 'custom' && !customSizeValid) return;
     const sizes = { a4: [595.28, 841.89], letter: [612, 792], legal: [612, 1008] } as const;
-    const selected = sizes[newPdfSize];
-    const dimensions: [number, number] = newPdfOrientation === 'portrait'
-      ? [selected[0], selected[1]]
-      : [selected[1], selected[0]];
+    const selected = newPdfSize === 'custom' ? [customWidthPoints, customHeightPoints] : sizes[newPdfSize];
+    const dimensions: [number, number] =
+      newPdfSize === 'custom' || newPdfOrientation === 'portrait'
+        ? [selected[0], selected[1]]
+        : [selected[1], selected[0]];
     const { PDFDocument } = await import('pdf-lib');
     const pdf = await PDFDocument.create();
     for (let page = 0; page < newPdfPages; page += 1) pdf.addPage(dimensions);
     const bytes = await pdf.save();
     newPdfDialogRef.current?.close();
-    await openFile(new File([bytes.slice().buffer as ArrayBuffer], 'Untitled.pdf', { type: 'application/pdf' }));
+    await openFile(
+      new File([bytes.slice().buffer as ArrayBuffer], 'Untitled.pdf', { type: 'application/pdf' }),
+    );
   };
 
   const cycleTheme = () => {
     const next: ThemeMode = themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system';
     setThemeMode(next);
-    try { window.localStorage.setItem('paperly-theme-mode', next); } catch { /* optional preference */ }
+    try {
+      window.localStorage.setItem('paperly-theme-mode', next);
+    } catch {
+      /* optional preference */
+    }
   };
 
   const handleUpdate = async () => {
@@ -151,14 +171,22 @@ export default function PdfEditor() {
       if (updateStatus === 'downloaded') return nativeUpdater.install();
       setDownloadProgress(null);
       setUpdateStatus('loading');
-      try { await nativeUpdater.check(); } catch { setUpdateStatus('error'); }
+      try {
+        await nativeUpdater.check();
+      } catch {
+        setUpdateStatus('error');
+      }
       return;
     }
     setUpdateStatus('loading');
     try {
       const response = await fetch(RELEASES_API_URL, { headers: { Accept: 'application/vnd.github+json' } });
       if (!response.ok) throw new Error('Unable to check for updates.');
-      const data = (await response.json()) as { tag_name?: string; html_url?: string; assets?: Array<{ name?: string; browser_download_url?: string }> };
+      const data = (await response.json()) as {
+        tag_name?: string;
+        html_url?: string;
+        assets?: Array<{ name?: string; browser_download_url?: string }>;
+      };
       const tag = data.tag_name || 'v0.0.0';
       const installer = data.assets?.find((asset) => /\.exe$/i.test(asset.name || '')) || data.assets?.[0];
       const releaseUrl = data.html_url || RELEASES_URL;
@@ -286,10 +314,20 @@ export default function PdfEditor() {
               Export XFA + fallback
             </button>
           )}
-          <button className="icon-button history-action undo-action" onClick={undo} disabled={!past.length} aria-label="Undo">
+          <button
+            className="icon-button history-action undo-action"
+            onClick={undo}
+            disabled={!past.length}
+            aria-label="Undo"
+          >
             ↶
           </button>
-          <button className="icon-button history-action redo-action" onClick={redo} disabled={!future.length} aria-label="Redo">
+          <button
+            className="icon-button history-action redo-action"
+            onClick={redo}
+            disabled={!future.length}
+            aria-label="Redo"
+          >
             ↷
           </button>
           <input
@@ -300,13 +338,47 @@ export default function PdfEditor() {
             onChange={(event) => openFile(event.target.files?.[0])}
           />
           <div className="header-file-split">
-            <button type="button" onClick={() => newPdfDialogRef.current?.showModal()}>New PDF</button>
+            <button type="button" onClick={() => newPdfDialogRef.current?.showModal()}>
+              New PDF
+            </button>
             <details ref={fileMenuRef}>
-              <summary role="button" aria-label="More new and open options">▾</summary>
+              <summary role="button" aria-label="More new and open options">
+                ▾
+              </summary>
               <div className="header-file-menu">
-              <button onClick={() => { fileMenuRef.current?.removeAttribute('open'); newPdfDialogRef.current?.showModal(); }}><b>＋</b><span>New PDF<small>Create blank pages</small></span></button>
-              <button onClick={() => { fileMenuRef.current?.removeAttribute('open'); uploadRef.current?.click(); }}><b>↥</b><span>Open PDF<small>Choose an existing document</small></span></button>
-              <button onClick={() => { fileMenuRef.current?.removeAttribute('open'); window.dispatchEvent(new Event('paperly-choose-xfa')); }}><b>X</b><span>Open XFA<small>Import XML or XDP</small></span></button>
+                <button
+                  onClick={() => {
+                    fileMenuRef.current?.removeAttribute('open');
+                    newPdfDialogRef.current?.showModal();
+                  }}
+                >
+                  <b>＋</b>
+                  <span>
+                    New PDF<small>Create blank pages</small>
+                  </span>
+                </button>
+                <button
+                  onClick={() => {
+                    fileMenuRef.current?.removeAttribute('open');
+                    uploadRef.current?.click();
+                  }}
+                >
+                  <b>↥</b>
+                  <span>
+                    Open PDF<small>Choose an existing document</small>
+                  </span>
+                </button>
+                <button
+                  onClick={() => {
+                    fileMenuRef.current?.removeAttribute('open');
+                    window.dispatchEvent(new Event('paperly-choose-xfa'));
+                  }}
+                >
+                  <b>X</b>
+                  <span>
+                    Open XFA<small>Import XML or XDP</small>
+                  </span>
+                </button>
               </div>
             </details>
           </div>
@@ -417,15 +489,49 @@ export default function PdfEditor() {
                         : 'Check for updates'}
           </button>
           <details ref={moreMenuRef} className="header-more-menu">
-            <summary role="button" aria-label="More application options">•••</summary>
+            <summary role="button" aria-label="More application options">
+              •••
+            </summary>
             <div>
-              <button aria-label={`Theme: ${themeMode}. Click to change.`} onClick={() => { cycleTheme(); moreMenuRef.current?.removeAttribute('open'); }}>
+              <button
+                aria-label={`Theme: ${themeMode}. Click to change.`}
+                onClick={() => {
+                  cycleTheme();
+                  moreMenuRef.current?.removeAttribute('open');
+                }}
+              >
                 <b>{themeMode === 'system' ? 'A' : themeMode === 'light' ? '☀' : '◐'}</b>
-                <span>Theme<small>{themeMode === 'system' ? 'System' : themeMode === 'light' ? 'Light' : 'Dark'} · click to change</small></span>
+                <span>
+                  Theme
+                  <small>
+                    {themeMode === 'system' ? 'System' : themeMode === 'light' ? 'Light' : 'Dark'} · click to
+                    change
+                  </small>
+                </span>
               </button>
-              <button aria-label="Check for updates" disabled={updateStatus === 'loading' || updateStatus === 'downloading'} onClick={() => { void handleUpdate(); moreMenuRef.current?.removeAttribute('open'); }}>
+              <button
+                aria-label="Check for updates"
+                disabled={updateStatus === 'loading' || updateStatus === 'downloading'}
+                onClick={() => {
+                  void handleUpdate();
+                  moreMenuRef.current?.removeAttribute('open');
+                }}
+              >
                 <b>↻</b>
-                <span>Updates<small>{updateStatus === 'downloaded' ? `Install ${latestVersion ?? 'update'}` : updateStatus === 'available' ? `Download ${latestVersion ?? 'update'}` : updateStatus === 'latest' ? 'Paperly is up to date' : updateStatus === 'error' ? 'Check again' : 'Check for updates'}</small></span>
+                <span>
+                  Updates
+                  <small>
+                    {updateStatus === 'downloaded'
+                      ? `Install ${latestVersion ?? 'update'}`
+                      : updateStatus === 'available'
+                        ? `Download ${latestVersion ?? 'update'}`
+                        : updateStatus === 'latest'
+                          ? 'Paperly is up to date'
+                          : updateStatus === 'error'
+                            ? 'Check again'
+                            : 'Check for updates'}
+                  </small>
+                </span>
               </button>
             </div>
           </details>
@@ -451,7 +557,9 @@ export default function PdfEditor() {
               setCurrentPage(field.page);
               setSelectedXfaKey(field.key);
               window.setTimeout(() => {
-                document.querySelector<HTMLElement>(`[data-paperly-xfa-key="${CSS.escape(field.key)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                document
+                  .querySelector<HTMLElement>(`[data-paperly-xfa-key="${CSS.escape(field.key)}"]`)
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
               }, 50);
             }}
             onError={setError}
@@ -470,17 +578,102 @@ export default function PdfEditor() {
       <dialog ref={newPdfDialogRef} className="new-pdf-dialog" aria-labelledby="new-pdf-title">
         <form method="dialog">
           <header>
-            <div><h2 id="new-pdf-title">New PDF</h2><p>Start with clean, editable pages.</p></div>
-            <button className="icon-button" value="cancel" aria-label="Close new PDF dialog">×</button>
+            <div>
+              <h2 id="new-pdf-title">New PDF</h2>
+              <p>Start with clean, editable pages.</p>
+            </div>
+            <button className="icon-button" value="cancel" aria-label="Close new PDF dialog">
+              ×
+            </button>
           </header>
           <div className="new-pdf-options">
-            <label>Page size<select value={newPdfSize} onChange={(event) => setNewPdfSize(event.target.value as typeof newPdfSize)}><option value="a4">A4</option><option value="letter">Letter</option><option value="legal">Legal</option></select></label>
-            <label>Orientation<select value={newPdfOrientation} onChange={(event) => setNewPdfOrientation(event.target.value as typeof newPdfOrientation)}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
-            <label>Pages<input type="number" min="1" max="100" value={newPdfPages} onChange={(event) => setNewPdfPages(Math.max(1, Math.min(100, Number(event.target.value) || 1)))} /></label>
+            <label>
+              Page size
+              <select
+                value={newPdfSize}
+                onChange={(event) => setNewPdfSize(event.target.value as typeof newPdfSize)}
+              >
+                <option value="a4">A4</option>
+                <option value="letter">Letter</option>
+                <option value="legal">Legal</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            {newPdfSize === 'custom' ? (
+              <label>
+                Unit
+                <select
+                  value={newPdfCustomUnit}
+                  onChange={(event) => setNewPdfCustomUnit(event.target.value as typeof newPdfCustomUnit)}
+                >
+                  <option value="mm">Millimetres</option>
+                  <option value="in">Inches</option>
+                  <option value="pt">Points</option>
+                </select>
+              </label>
+            ) : (
+              <label>
+                Orientation
+                <select
+                  value={newPdfOrientation}
+                  onChange={(event) => setNewPdfOrientation(event.target.value as typeof newPdfOrientation)}
+                >
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select>
+              </label>
+            )}
+            {newPdfSize === 'custom' && (
+              <>
+                <label>
+                  Width
+                  <input
+                    type="number"
+                    min={36 / newPdfUnitScale}
+                    max={14400 / newPdfUnitScale}
+                    step={newPdfCustomUnit === 'pt' ? 1 : 0.1}
+                    value={newPdfCustomWidth}
+                    onChange={(event) => setNewPdfCustomWidth(Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  Height
+                  <input
+                    type="number"
+                    min={36 / newPdfUnitScale}
+                    max={14400 / newPdfUnitScale}
+                    step={newPdfCustomUnit === 'pt' ? 1 : 0.1}
+                    value={newPdfCustomHeight}
+                    onChange={(event) => setNewPdfCustomHeight(Number(event.target.value))}
+                  />
+                </label>
+              </>
+            )}
+            <label>
+              Pages
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={newPdfPages}
+                onChange={(event) =>
+                  setNewPdfPages(Math.max(1, Math.min(100, Number(event.target.value) || 1)))
+                }
+              />
+            </label>
           </div>
           <footer>
-            <button className="button secondary" value="cancel">Cancel</button>
-            <button className="button primary" type="button" onClick={() => void createNewPdf()}>Create PDF</button>
+            <button className="button secondary" value="cancel">
+              Cancel
+            </button>
+            <button
+              className="button primary"
+              type="button"
+              disabled={newPdfSize === 'custom' && !customSizeValid}
+              onClick={() => void createNewPdf()}
+            >
+              Create PDF
+            </button>
           </footer>
         </form>
       </dialog>

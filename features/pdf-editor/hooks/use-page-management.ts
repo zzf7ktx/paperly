@@ -34,7 +34,11 @@ export function usePageManagement(
       state.pdfRef.current = prepared.pdf;
       state.setPdfBytes(result.bytes);
       state.setPages(
-        result.order.map((old, index) => (old === null ? prepared.pages[index] : state.pages[old])),
+        result.order.map((old, index) =>
+          old === null || (operation.kind === 'resize' && index === operation.index)
+            ? prepared.pages[index]
+            : state.pages[old],
+        ),
       );
       state.setCurrentPage(result.selected);
       state.setEdits(remapPageMap(state.edits, result.order));
@@ -64,7 +68,13 @@ export function usePageManagement(
           tab.id === state.activeDocumentId ? { ...tab, pageCount: result.order.length } : tab,
         ),
       );
-      state.setToast(operation.kind === 'insert' ? 'PDF pages combined' : 'Pages updated');
+      state.setToast(
+        operation.kind === 'insert'
+          ? 'PDF pages combined'
+          : operation.kind === 'resize'
+            ? 'Page size updated'
+            : 'Pages updated',
+      );
       window.setTimeout(() => state.setToast(''), 2600);
     } catch (error) {
       state.setError(error instanceof Error ? error.message : 'Pages could not be updated.');
@@ -125,10 +135,17 @@ export function usePageManagement(
         throw new Error('The destination changed. Please try copying again.');
       }
       const snapshot: EditorHistorySnapshot = {
-        edits: target.edits, formChanges: target.formChanges, formEdits: target.formEdits,
-        formBackgrounds: target.formBackgrounds, addedBoxes: target.addedBoxes, addedImages: target.addedImages,
-        imageEdits: target.imageEdits, vectorEdits: target.vectorEdits, xfaStructureEdits: target.xfaStructureEdits,
-        xfaDrawEdits: target.xfaDrawEdits, xfaChanged: target.xfaChanged,
+        edits: target.edits,
+        formChanges: target.formChanges,
+        formEdits: target.formEdits,
+        formBackgrounds: target.formBackgrounds,
+        addedBoxes: target.addedBoxes,
+        addedImages: target.addedImages,
+        imageEdits: target.imageEdits,
+        vectorEdits: target.vectorEdits,
+        xfaStructureEdits: target.xfaStructureEdits,
+        xfaDrawEdits: target.xfaDrawEdits,
+        xfaChanged: target.xfaChanged,
         pageForms: target.pages.map((page) => page.forms),
         pageVectors: target.pages.map((page) => page.vectors),
         pageImages: target.pages.map((page) => page.images),
