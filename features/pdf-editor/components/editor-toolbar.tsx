@@ -194,7 +194,15 @@ export function EditorToolbar({ editor }: Props) {
             className={`shape-selection-toggle ${selectPdfShapes ? 'active' : ''}`}
             disabled={!pdfBytes}
             onClick={() => {
-              setSelectPdfShapes((enabled) => !enabled);
+              setSelectPdfShapes((enabled) => {
+                const next = !enabled;
+                try {
+                  window.localStorage.setItem('paperly-select-pdf-shapes', String(next));
+                } catch {
+                  /* local preference is optional */
+                }
+                return next;
+              });
               setTool('select');
             }}
           >

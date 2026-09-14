@@ -5176,6 +5176,12 @@ select:not([multiple]) {
 .xfa-add-control {
   overflow: visible;
 }
+.xfa-add-control > .paperly-select {
+  border-radius: 5px 0 0 5px;
+}
+.xfa-add-control > button {
+  border-radius: 0 5px 5px 0 !important;
+}
 .field-type-menu {
   position: relative;
   width: 94px;

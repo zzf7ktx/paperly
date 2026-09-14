@@ -8,6 +8,7 @@ type Context = Pick<
   | 'setCombineTitleAndTabs'
   | 'setJoinSplitCharacters'
   | 'setHideScrollbars'
+  | 'setSelectPdfShapes'
   | 'setLeftPanelWidth'
   | 'setRightPanelWidth'
   | 'setLeftPanelCollapsed'
@@ -65,6 +66,7 @@ export function useEditorPreferences({
   setCombineTitleAndTabs,
   setJoinSplitCharacters,
   setHideScrollbars,
+  setSelectPdfShapes,
   setLeftPanelWidth,
   setRightPanelWidth,
   setLeftPanelCollapsed,
@@ -121,6 +123,7 @@ export function useEditorPreferences({
       setCombineTitleAndTabs(window.localStorage.getItem('paperly-combine-title-tabs') === 'true');
       setJoinSplitCharacters(window.localStorage.getItem('paperly-join-split-characters') !== 'false');
       setHideScrollbars(window.localStorage.getItem('paperly-hide-scrollbars') === 'true');
+      setSelectPdfShapes(window.localStorage.getItem('paperly-select-pdf-shapes') === 'true');
       const number = (key: string, fallback: number, min: number, max: number) => {
         const value = Number(window.localStorage.getItem(key));
         return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
