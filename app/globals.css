@@ -351,7 +351,7 @@ button:disabled {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 .button,
 .icon-button {
@@ -584,6 +584,29 @@ button:disabled {
 .header-actions .button,
 .header-actions .icon-button {
   height: 32px;
+  flex: 0 0 auto;
+}
+.header-actions .update-button {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  font-size: 0;
+}
+.header-actions .update-button:before {
+  content: '\21bb';
+  font-size: 17px;
+  line-height: 1;
+}
+.header-actions .update-downloading:before,
+.header-actions .update-available:before,
+.header-actions .update-downloaded:before {
+  content: '\2193';
+}
+.header-actions .update-latest:before {
+  content: '\2713';
+}
+.header-actions .update-error:before {
+  content: '!';
 }
 .app-shell.tabs-combined .topbar {
   grid-template-columns: var(--left-panel-width, 164px) 6px minmax(0, 1fr) 6px var(--right-panel-width, 300px);
@@ -601,7 +624,7 @@ button:disabled {
 .app-shell.tabs-combined .header-actions {
   grid-column: 5;
   justify-content: flex-end;
-  padding: 0 10px;
+  padding: 0 5px;
 }
 .document-tabs:not(.combined) {
   padding-left: calc(var(--left-panel-width, 164px) + 18px);

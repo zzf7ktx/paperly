@@ -200,7 +200,7 @@ export default function PdfEditor() {
             </button>
           )}
           <button
-            className="button secondary"
+            className={`button secondary update-button update-${updateStatus}`}
             type="button"
             onClick={async () => {
               const nativeUpdater = window.paperlyUpdater;
@@ -261,8 +261,36 @@ export default function PdfEditor() {
                 window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');
               }
             }}
-            aria-label="Check for updates"
-            title={updateStatus === 'downloaded' ? 'Restart Paperly and install the downloaded update' : 'Check for updates'}
+            aria-label={
+              updateStatus === 'loading'
+                ? 'Checking for updates'
+                : updateStatus === 'downloading'
+                  ? `Downloading update${downloadProgress === null ? '' : `: ${downloadProgress}%`}`
+                  : updateStatus === 'downloaded'
+                    ? `Install ${latestVersion ?? 'update'}`
+                    : updateStatus === 'available'
+                      ? `Update ${latestVersion ?? ''}`.trim()
+                      : updateStatus === 'latest'
+                        ? 'Paperly is up to date'
+                        : updateStatus === 'error'
+                          ? 'Try checking for updates again'
+                          : 'Check for updates'
+            }
+            title={
+              updateStatus === 'loading'
+                ? 'Checking for updates…'
+                : updateStatus === 'downloading'
+                  ? `Downloading update${downloadProgress === null ? '…' : `: ${downloadProgress}%`}`
+                  : updateStatus === 'downloaded'
+                    ? 'Restart Paperly and install the downloaded update'
+                    : updateStatus === 'available'
+                      ? `Download ${latestVersion ?? 'the latest update'}`
+                      : updateStatus === 'latest'
+                        ? 'Paperly is up to date'
+                        : updateStatus === 'error'
+                          ? 'Try checking for updates again'
+                          : 'Check for updates'
+            }
           >
             {updateStatus === 'loading'
               ? 'Checking…'
