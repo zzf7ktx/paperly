@@ -131,6 +131,8 @@
   color: var(--page-muted);
 }
 .page-rail .page-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 210px;
   padding: 8px 7px 4px;
   margin: 0 0 10px;
   border: 1px solid transparent;
@@ -245,7 +247,9 @@
   line-height: 1.5;
 }
 .copy-page-dialog {
+  inset: 0;
   width: min(420px, calc(100vw - 32px));
+  margin: auto;
   border: 1px solid var(--page-border);
   border-radius: 14px;
   background: var(--page-card);

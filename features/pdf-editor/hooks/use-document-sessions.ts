@@ -387,6 +387,7 @@ export function useDocumentSessions({
     }
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
+      const loadXfaPackets = () => readNativeXfaPackets(bytes).catch(() => []);
       const pdfjs = await import('pdfjs-dist');
       pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
       const pdf = await pdfjs.getDocument({
@@ -395,7 +396,7 @@ export function useDocumentSessions({
         wasmUrl: new URL('pdfjs/wasm/', document.baseURI).href,
       }).promise;
       const pureXfa = !options?.forceFallback && Boolean(pdf.isPureXfa);
-      const xfaPackets = await readNativeXfaPackets(bytes).catch(() => []);
+      const xfaPackets = options?.prepareOnly || pureXfa ? await loadXfaPackets() : [];
       let scriptMetadata: Record<string, XfaScriptMetadata> = {};
       let templateModel: XfaTemplateModel = { nodes: [], fields: [], draws: [], regions: [], warnings: [] };
       if (pureXfa) {
@@ -408,14 +409,16 @@ export function useDocumentSessions({
           console.warn('XFA scripts could not be inspected.', reason);
         }
       }
-      const pageInfo: PageInfo[] = [];
-      for (let pageIndex = 0; pageIndex < pdf.numPages; pageIndex += 1) {
+      const loadPageInfo = async (pageIndex: number): Promise<PageInfo> => {
         const page = await pdf.getPage(pageIndex + 1);
         const viewport = page.getViewport({ scale: 1 });
-        const content = pureXfa ? { items: [], styles: {} } : await page.getTextContent();
-        const operatorList = pureXfa
-          ? { fnArray: [], argsArray: [] }
-          : await page.getOperatorList({ annotationMode: 0 });
+        const [content, operatorList, annotations] = await Promise.all([
+          pureXfa ? Promise.resolve({ items: [], styles: {} }) : page.getTextContent(),
+          pureXfa
+            ? Promise.resolve({ fnArray: [], argsArray: [] })
+            : page.getOperatorList({ annotationMode: 0 }),
+          pureXfa ? Promise.resolve([]) : page.getAnnotations({ intent: 'display' }),
+        ]);
         const blocks: TextBlock[] = [];
         const textStyles = (content as any).styles || {};
         const measureContext = document.createElement('canvas').getContext('2d');
@@ -487,7 +490,6 @@ export function useDocumentSessions({
           });
         });
         const normalizedBlocks = joinSplitCharacters ? mergeSplitCharacterBlocks(blocks) : blocks;
-        const annotations = pureXfa ? [] : await page.getAnnotations({ intent: 'display' });
         const forms: FormBlock[] = [];
         annotations.forEach((annotation: any) => {
           if (annotation.subtype !== 'Widget' || !annotation.fieldName || !annotation.rect) return;
@@ -550,15 +552,32 @@ export function useDocumentSessions({
           }
         });
         const formsWithBackdrops = attachFormBackdrops(pdfjs, viewport, operatorList, forms);
-        pageInfo.push({
+        return {
           width: viewport.width,
           height: viewport.height,
           blocks: normalizedBlocks,
           forms: attachFormLabels(formsWithBackdrops, normalizedBlocks),
           images: extractPdfImages(pdfjs, viewport, operatorList),
           vectors: extractPdfVectors(pdfjs, viewport, operatorList),
-        });
-      }
+        };
+      };
+      const progressive = !options?.prepareOnly && !pureXfa && pdf.numPages > 1;
+      const firstPageInfo = await loadPageInfo(0);
+      const pageInfo: PageInfo[] = progressive
+        ? Array.from({ length: pdf.numPages }, () => ({
+            width: firstPageInfo.width,
+            height: firstPageInfo.height,
+            blocks: [],
+            forms: [],
+            images: [],
+            vectors: [],
+          }))
+        : await Promise.all(
+            Array.from({ length: pdf.numPages }, (_, pageIndex) =>
+              pageIndex === 0 ? firstPageInfo : loadPageInfo(pageIndex),
+            ),
+          );
+      pageInfo[0] = firstPageInfo;
       const warnings = collectFontWarnings(pageInfo);
       if (!options?.prepareOnly) {
         pdfRef.current = pdf;
@@ -652,6 +671,63 @@ export function useDocumentSessions({
       setBlockVisuals({});
       setTool('select');
       setZoom(1);
+      const waitForIdle = (timeout = 500) =>
+        new Promise<void>((resolve) => {
+          if ('requestIdleCallback' in window) {
+            window.requestIdleCallback(() => resolve(), { timeout });
+          } else {
+            setTimeout(resolve, 16);
+          }
+        });
+      if (!pureXfa) {
+        window.setTimeout(() => {
+          void waitForIdle(2000)
+            .then(loadXfaPackets)
+            .then((packets) => {
+              if (!packets.length || documentSessionsRef.current.get(documentId) !== session) return;
+              session.xfaViewMode = 'fallback';
+              session.xfaSourceBytes = bytes.slice();
+              setDocumentTabs((tabs) => [...tabs]);
+            });
+        }, 500);
+      }
+      if (progressive) {
+        void (async () => {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 200));
+          const remaining = Array.from({ length: pdf.numPages - 1 }, (_, index) => index + 1);
+          const concurrency = (navigator.hardwareConcurrency || 4) <= 4 ? 1 : 2;
+          for (let offset = 0; offset < remaining.length; offset += concurrency) {
+            if (documentSessionsRef.current.get(documentId) !== session) return;
+            await waitForIdle();
+            const indexes = remaining.slice(offset, offset + concurrency);
+            const loaded = await Promise.all(indexes.map(loadPageInfo));
+            const mergePages = (current: PageInfo[]) => {
+              const next = [...current];
+              indexes.forEach((pageIndex, index) => {
+                const existing = next[pageIndex];
+                const analyzed = loaded[index];
+                next[pageIndex] = {
+                  ...analyzed,
+                  vectors: [...analyzed.vectors, ...existing.vectors.filter((vector) => vector.added)],
+                };
+              });
+              return next;
+            };
+            if (pdfRef.current === pdf) {
+              setPages((current) => {
+                const next = mergePages(current);
+                session.pages = next;
+                return next;
+              });
+            } else {
+              session.pages = mergePages(session.pages);
+            }
+          }
+          const finalWarnings = collectFontWarnings(session.pages);
+          session.fontWarnings = finalWarnings;
+          if (pdfRef.current === pdf) setFontWarnings(finalWarnings);
+        })().catch((reason) => console.warn('Some PDF pages could not be prepared.', reason));
+      }
       return session;
     } catch (reason) {
       if (options?.prepareOnly) throw reason;

@@ -1,7 +1,7 @@
 'use client';
 import type { EditorHistorySnapshot, VectorEdit } from '../types';
 
-import { type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
+import { useRef, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { blockKey } from '../lib/text';
 import type { AddedImage, ImageBlock, SelectedElementRef, VectorBlock, VectorKind } from '../types';
 import type { EditorState } from './use-editor-state';
@@ -121,6 +121,9 @@ export function useCanvasInteraction({
   setFitMode,
   setZoom,
 }: Context) {
+  const zoomFrameRef = useRef<number | null>(null);
+  const zoomInputRef = useRef({ deltaY: 0, clientX: 0, clientY: 0 });
+
   const startOcrRegionSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (tool !== 'ocr-region' || event.button !== 0 || ocrBusy) return;
     event.preventDefault();
@@ -578,27 +581,34 @@ export function useCanvasInteraction({
 
   const zoomCanvasWithWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     const wrap = canvasWrapRef.current;
-    const pageElement = wrap?.querySelector<HTMLElement>('.live-page');
-    if (!wrap || !pageElement || !pdfBytes) return;
+    if (!wrap || !pdfBytes) return;
     event.preventDefault();
-    const clientX = event.clientX;
-    const clientY = event.clientY;
-    const deltaY = event.deltaY;
-    const pageBounds = pageElement.getBoundingClientRect();
-    setFitMode('manual');
-    setZoom((current) => {
-      const factor = Math.exp(-deltaY * 0.0015);
-      const next = Math.max(0.25, Math.min(3, current * factor));
-      const pageX = (clientX - pageBounds.left) / current;
-      const pageY = (clientY - pageBounds.top) / current;
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          const nextBounds = pageElement.getBoundingClientRect();
-          wrap.scrollLeft += nextBounds.left + pageX * next - clientX;
-          wrap.scrollTop += nextBounds.top + pageY * next - clientY;
-        }),
-      );
-      return next;
+    zoomInputRef.current.deltaY += event.deltaY;
+    zoomInputRef.current.clientX = event.clientX;
+    zoomInputRef.current.clientY = event.clientY;
+    if (zoomFrameRef.current !== null) return;
+    zoomFrameRef.current = requestAnimationFrame(() => {
+      zoomFrameRef.current = null;
+      const pageElement = wrap.querySelector<HTMLElement>('.live-page');
+      if (!pageElement) return;
+      const { deltaY, clientX, clientY } = zoomInputRef.current;
+      zoomInputRef.current.deltaY = 0;
+      const pageBounds = pageElement.getBoundingClientRect();
+      setFitMode('manual');
+      setZoom((current) => {
+        const factor = Math.exp(-deltaY * 0.0015);
+        const next = Math.max(0.25, Math.min(3, current * factor));
+        const pageX = (clientX - pageBounds.left) / current;
+        const pageY = (clientY - pageBounds.top) / current;
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const nextBounds = pageElement.getBoundingClientRect();
+            wrap.scrollLeft += nextBounds.left + pageX * next - clientX;
+            wrap.scrollTop += nextBounds.top + pageY * next - clientY;
+          }),
+        );
+        return next;
+      });
     });
   };
 

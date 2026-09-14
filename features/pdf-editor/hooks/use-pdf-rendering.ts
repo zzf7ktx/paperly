@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { EditorState } from './use-editor-state';
 
 type Context = Pick<
@@ -31,6 +31,8 @@ export function usePdfRendering({
   zoom,
   setError,
 }: Context) {
+  const renderedPageRef = useRef(-1);
+
   useEffect(() => {
     const wrap = canvasWrapRef.current;
     const page = pages[currentPage];
@@ -59,51 +61,59 @@ export function usePdfRendering({
 
   useEffect(() => {
     if (!pdfRef.current || !canvasRef.current || !pages[currentPage]) return;
+
     let cancelled = false;
+    let started = false;
     let renderTask: any = null;
     const revision = ++renderRevisionRef.current;
-    (async () => {
-      renderTaskRef.current?.cancel?.();
-      const page = await pdfRef.current.getPage(currentPage + 1);
-      if (cancelled || revision !== renderRevisionRef.current) return;
-      const viewport = page.getViewport({ scale: zoom });
-      const maxCanvasPixels = 4_000_000;
-      const ratioLimit = Math.sqrt(maxCanvasPixels / Math.max(1, viewport.width * viewport.height));
-      const ratio = Math.min(window.devicePixelRatio || 1, 2, Math.max(0.75, ratioLimit));
-      const stagingCanvas = document.createElement('canvas');
-      stagingCanvas.width = Math.max(1, Math.floor(viewport.width * ratio));
-      stagingCanvas.height = Math.max(1, Math.floor(viewport.height * ratio));
-      const context = stagingCanvas.getContext('2d');
-      if (!context) return;
-      renderTask = page.render({
-        canvasContext: context,
-        viewport,
-        transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
-        annotationMode: 0,
-      });
-      renderTaskRef.current = renderTask;
-      await renderTask.promise;
-      const canvas = canvasRef.current;
-      if (cancelled || revision !== renderRevisionRef.current || !canvas) return;
-      canvas.width = stagingCanvas.width;
-      canvas.height = stagingCanvas.height;
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
-      const visibleContext = canvas.getContext('2d');
-      if (!visibleContext) return;
-      visibleContext.clearRect(0, 0, canvas.width, canvas.height);
-      visibleContext.drawImage(stagingCanvas, 0, 0);
-    })().catch((reason) => {
-      if (
-        !cancelled &&
-        revision === renderRevisionRef.current &&
-        reason?.name !== 'RenderingCancelledException'
-      )
-        setError('This page could not be rendered.');
-    });
+    const delay = renderedPageRef.current === currentPage ? 120 : 0;
+    const timer = window.setTimeout(
+      () =>
+        void (async () => {
+          started = true;
+          renderTaskRef.current?.cancel?.();
+          const page = await pdfRef.current.getPage(currentPage + 1);
+          if (cancelled || revision !== renderRevisionRef.current) return;
+          const viewport = page.getViewport({ scale: zoom });
+          const maxCanvasPixels = 4_000_000;
+          const ratioLimit = Math.sqrt(maxCanvasPixels / Math.max(1, viewport.width * viewport.height));
+          const ratio = Math.min(window.devicePixelRatio || 1, 2, Math.max(0.75, ratioLimit));
+          const stagingCanvas = document.createElement('canvas');
+          stagingCanvas.width = Math.max(1, Math.floor(viewport.width * ratio));
+          stagingCanvas.height = Math.max(1, Math.floor(viewport.height * ratio));
+          const context = stagingCanvas.getContext('2d');
+          if (!context) return;
+          renderTask = page.render({
+            canvasContext: context,
+            viewport,
+            transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
+            annotationMode: 0,
+          });
+          renderTaskRef.current = renderTask;
+          await renderTask.promise;
+          const visibleCanvas = canvasRef.current;
+          if (cancelled || revision !== renderRevisionRef.current || !visibleCanvas) return;
+          visibleCanvas.width = stagingCanvas.width;
+          visibleCanvas.height = stagingCanvas.height;
+          const visibleContext = visibleCanvas.getContext('2d');
+          if (!visibleContext) return;
+          visibleContext.clearRect(0, 0, visibleCanvas.width, visibleCanvas.height);
+          visibleContext.drawImage(stagingCanvas, 0, 0);
+          renderedPageRef.current = currentPage;
+        })().catch((reason) => {
+          if (
+            !cancelled &&
+            revision === renderRevisionRef.current &&
+            reason?.name !== 'RenderingCancelledException'
+          )
+            setError('This page could not be rendered.');
+        }),
+      delay,
+    );
     return () => {
       cancelled = true;
-      renderTask?.cancel?.();
+      window.clearTimeout(timer);
+      if (started) renderTask?.cancel?.();
     };
   }, [currentPage, pages, zoom]);
 
