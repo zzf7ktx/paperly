@@ -281,6 +281,25 @@ export async function exportDocument(
       }
       const variant = fontVariant(base, bold, italic);
       embeddedFonts[variant] ||= await pdfDocument.embedFont(variant);
+      if (requiredText) {
+        try {
+          embeddedFonts[variant].encodeText(requiredText);
+        } catch {
+          // Standard PDF fonts use WinAnsi and cannot encode Vietnamese
+          // diacritics. Keep recognized or typed Unicode text exportable.
+          if (!fontkitRegistered) {
+            const fontkitModule = await import('@pdf-lib/fontkit');
+            pdfDocument.registerFontkit(fontkitModule.default);
+            fontkitRegistered = true;
+          }
+          if (!embeddedFonts['noto-sans-unicode']) {
+            const response = await fetch('/ocr/noto-sans-regular.ttf');
+            if (!response.ok) throw new Error('Unicode font is unavailable');
+            embeddedFonts['noto-sans-unicode'] = await pdfDocument.embedFont(await response.arrayBuffer(), { subset: true });
+          }
+          return embeddedFonts['noto-sans-unicode'];
+        }
+      }
       return embeddedFonts[variant];
     };
     const embeddedImageCache = new Map<string, any>();

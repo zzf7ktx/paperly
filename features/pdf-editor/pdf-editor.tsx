@@ -10,7 +10,7 @@ import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { usePdfEditor } from './hooks/use-pdf-editor';
 import type { ThemeMode } from './types';
 
-const APP_VERSION = '1.0.10';
+const APP_VERSION = '1.0.11';
 const RELEASES_URL = 'https://github.com/zzf7ktx/paperly/releases';
 const RELEASES_API_URL = 'https://api.github.com/repos/zzf7ktx/paperly/releases/latest';
 

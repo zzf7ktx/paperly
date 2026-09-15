@@ -49,6 +49,8 @@ type Props = {
     | 'ocrBusy'
     | 'ocrProgress'
     | 'ocrStatus'
+    | 'ocrLanguage'
+    | 'setOcrLanguage'
     | 'ocrConfidenceThreshold'
     | 'setOcrConfidenceThreshold'
     | 'ocrRecognizeLayout'
@@ -122,6 +124,8 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
     ocrBusy,
     ocrProgress,
     ocrStatus,
+    ocrLanguage,
+    setOcrLanguage,
     ocrConfidenceThreshold,
     setOcrConfidenceThreshold,
     ocrRecognizeLayout,
@@ -398,13 +402,13 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
           <label>Recognition language</label>
           <PaperlySelect
             label="Recognition language"
-            value="eng"
-            disabled
+            value={ocrLanguage}
+            disabled={ocrBusy}
             className="ocr-language-select"
-            options={[{ value: 'eng', label: 'English' }]}
-            onChange={() => undefined}
+            options={[{ value: 'eng', label: 'English' }, { value: 'vie', label: 'Vietnamese' }]}
+            onChange={(value) => setOcrLanguage(value === 'vie' ? 'vie' : 'eng')}
           />
-          <small className="ocr-language-note">English model installed locally</small>
+          <small className="ocr-language-note">English and Vietnamese models installed locally</small>
           <button
             className={`menu-toggle ocr-layout-toggle ${ocrRecognizeLayout ? 'active' : ''}`}
             disabled={ocrBusy}

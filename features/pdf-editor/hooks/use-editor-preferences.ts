@@ -22,6 +22,7 @@ type Context = Pick<
   | 'setSnapAnchor'
   | 'setShowDeletedLabels'
   | 'setOcrConfidenceThreshold'
+  | 'setOcrLanguage'
   | 'setOcrRecognizeLayout'
   | 'setThemeMode'
   | 'setSystemDarkMode'
@@ -39,10 +40,12 @@ type Context = Pick<
   | 'snapAnchor'
   | 'showDeletedLabels'
   | 'ocrConfidenceThreshold'
+  | 'ocrLanguage'
   | 'ocrRecognizeLayout'
   | 'systemDarkMode'
   | 'moveShapeContents'
   | 'ocrWorkerRef'
+  | 'ocrWorkerLanguageRef'
   | 'selectedElements'
   | 'selectedVectorId'
   | 'deleteSelectionRef'
@@ -86,6 +89,7 @@ export function useEditorPreferences({
   setSnapAnchor,
   setShowDeletedLabels,
   setOcrConfidenceThreshold,
+  setOcrLanguage,
   setOcrRecognizeLayout,
   setThemeMode,
   setSystemDarkMode,
@@ -102,10 +106,12 @@ export function useEditorPreferences({
   snapAnchor,
   showDeletedLabels,
   ocrConfidenceThreshold,
+  ocrLanguage,
   ocrRecognizeLayout,
   systemDarkMode,
   moveShapeContents,
   ocrWorkerRef,
+  ocrWorkerLanguageRef,
   selectedElements,
   selectedVectorId,
   deleteSelectionRef,
@@ -158,6 +164,7 @@ export function useEditorPreferences({
       if (storedSnapAnchor === 'start' || storedSnapAnchor === 'center' || storedSnapAnchor === 'end') setSnapAnchor(storedSnapAnchor);
       setShowDeletedLabels(window.localStorage.getItem('paperly-show-deleted-labels') !== 'false');
       setOcrConfidenceThreshold(number('paperly-ocr-confidence-threshold', 65, 30, 95));
+      setOcrLanguage(window.localStorage.getItem('paperly-ocr-language') === 'vie' ? 'vie' : 'eng');
       setOcrRecognizeLayout(window.localStorage.getItem('paperly-ocr-recognize-layout') !== 'false');
       const storedTheme =
         window.localStorage.getItem('paperly-theme-mode') || window.localStorage.getItem('paperly-theme');
@@ -185,6 +192,7 @@ export function useEditorPreferences({
         'paperly-snap-anchor': snapAnchor,
         'paperly-show-deleted-labels': String(showDeletedLabels),
         'paperly-ocr-confidence-threshold': String(ocrConfidenceThreshold),
+        'paperly-ocr-language': ocrLanguage,
         'paperly-ocr-recognize-layout': String(ocrRecognizeLayout),
         'paperly-select-related-shapes': String(moveShapeContents),
       };
@@ -199,6 +207,7 @@ export function useEditorPreferences({
     leftPanelWidth,
     moveShapeContents,
     ocrConfidenceThreshold,
+    ocrLanguage,
     ocrRecognizeLayout,
     propertyPanelMode,
     rightPanelCollapsed,
@@ -227,6 +236,7 @@ export function useEditorPreferences({
     () => () => {
       void ocrWorkerRef.current?.terminate?.();
       ocrWorkerRef.current = null;
+      ocrWorkerLanguageRef.current = null;
     },
     [],
   );
