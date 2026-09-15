@@ -11,6 +11,9 @@ const assets = [
   [join(root, 'node_modules', 'tesseract.js-core', 'tesseract-core-simd-lstm.wasm.js'), 'tesseract-core-simd-lstm.wasm.js'],
   [join(root, 'node_modules', 'tesseract.js-core', 'tesseract-core-relaxedsimd-lstm.wasm.js'), 'tesseract-core-relaxedsimd-lstm.wasm.js'],
   [join(root, 'node_modules', '@tesseract.js-data', 'eng', '4.0.0_best_int', 'eng.traineddata.gz'), 'eng.traineddata.gz'],
+  [join(root, 'node_modules', '@tesseract.js-data', 'vie', '4.0.0_best_int', 'vie.traineddata.gz'), 'vie.traineddata.gz'],
+  [join(root, 'node_modules', '@expo-google-fonts', 'noto-sans', '400Regular', 'NotoSans_400Regular.ttf'), 'noto-sans-regular.ttf'],
+  [join(root, 'node_modules', '@expo-google-fonts', 'noto-sans', 'LICENSE_FONT'), 'noto-sans-license.txt'],
 ];
 
 for (const [source, name] of assets) copyFileSync(source, join(destination, name));

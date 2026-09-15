@@ -63,6 +63,7 @@ export function useEditorState() {
   const deleteVectorRef = useRef<() => void>(() => undefined);
   const marqueeSuppressClickRef = useRef(false);
   const ocrWorkerRef = useRef<any>(null);
+  const ocrWorkerLanguageRef = useRef<'eng' | 'vie' | null>(null);
   const documentSessionsRef = useRef<Map<string, DocumentSession>>(new Map());
   const scheduleXfaRuntimeRef = useRef<(triggerKey?: string, activity?: string) => void>(() => undefined);
   const [fileName, setFileName] = useState('Try the example, or open your PDF');
@@ -159,6 +160,7 @@ export function useEditorState() {
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrStatus, setOcrStatus] = useState('Ready for local OCR');
+  const [ocrLanguage, setOcrLanguage] = useState<'eng' | 'vie'>('eng');
   const [ocrConfidenceThreshold, setOcrConfidenceThreshold] = useState(65);
   const [ocrRecognizeLayout, setOcrRecognizeLayout] = useState(true);
   const [ocrRegion, setOcrRegion] = useState<{
@@ -210,6 +212,7 @@ export function useEditorState() {
     deleteVectorRef,
     marqueeSuppressClickRef,
     ocrWorkerRef,
+    ocrWorkerLanguageRef,
     documentSessionsRef,
     scheduleXfaRuntimeRef,
     fileName,
@@ -354,6 +357,8 @@ export function useEditorState() {
     setOcrProgress,
     ocrStatus,
     setOcrStatus,
+    ocrLanguage,
+    setOcrLanguage,
     ocrConfidenceThreshold,
     setOcrConfidenceThreshold,
     ocrRecognizeLayout,
