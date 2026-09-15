@@ -38,6 +38,19 @@ function sendUpdateStatus(status, details = {}) {
   }
 }
 
+function useSelectedFolderForInstallerTemp() {
+  if (process.platform !== 'win32' || !updateDownloadDirectory) return;
+
+  // NSIS creates its plugin directory (including old-uninstaller.exe) under
+  // Windows Temp. Set both variables before electron-updater spawns the
+  // installer so it inherits this location, not the user's profile Temp.
+  const installerTemp = path.join(updateDownloadDirectory, 'Paperly-Installer-Temp');
+  fs.mkdirSync(installerTemp, { recursive: true });
+  fs.accessSync(installerTemp, fs.constants.W_OK);
+  process.env.TMP = installerTemp;
+  process.env.TEMP = installerTemp;
+}
+
 function configureUpdater() {
   loadUpdaterPreferences();
   ipcMain.handle('paperly:get-app-version', () => app.getVersion());
@@ -45,7 +58,7 @@ function configureUpdater() {
   ipcMain.handle('paperly:choose-update-download-directory', async () => {
     const window = BrowserWindow.getFocusedWindow();
     const options = {
-      title: 'Choose where Paperly downloads updates',
+      title: 'Choose where Paperly downloads and stages updates',
       defaultPath: updateDownloadDirectory || app.getPath('downloads'),
       buttonLabel: 'Use this folder',
       properties: ['openDirectory', 'createDirectory'],
@@ -89,6 +102,7 @@ function configureUpdater() {
     await autoUpdater.checkForUpdates();
   });
   ipcMain.handle('paperly:install-update', () => {
+    useSelectedFolderForInstallerTemp();
     autoUpdater.quitAndInstall();
   });
 }
