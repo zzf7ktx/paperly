@@ -68,6 +68,7 @@ export default function PdfEditor() {
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [currentVersion, setCurrentVersion] = useState(APP_VERSION);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const [motionEnabled, setMotionEnabled] = useState(true);
   const [updateDownloadDirectory, setUpdateDownloadDirectory] = useState<string | null>(null);
   const {
     uploadRef,
@@ -121,6 +122,16 @@ export default function PdfEditor() {
     exportPdf,
     getXfaXmlBytes,
   } = editor;
+
+  useEffect(() => {
+    try {
+      // Hydration uses the default; apply the saved choice after mount.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMotionEnabled(window.localStorage.getItem('paperly-motion-enabled') !== 'false');
+    } catch {
+      /* local preference is optional */
+    }
+  }, []);
 
   useEffect(() => {
     const updater = window.paperlyUpdater;
@@ -264,7 +275,7 @@ export default function PdfEditor() {
 
   return (
     <main
-      className={`app-shell ${darkMode ? 'dark-mode' : ''} ${documentTabs.length && !combineTitleAndTabs ? 'has-document-tabs' : ''} ${combineTitleAndTabs ? 'tabs-combined' : ''} ${leftPanelCollapsed ? 'left-panel-collapsed' : ''} ${rightPanelCollapsed ? 'right-panel-collapsed' : ''} ${showDeletedLabels ? '' : 'hide-deleted-labels'}`}
+      className={`app-shell ${darkMode ? 'dark-mode' : ''} ${motionEnabled ? '' : 'motion-off'} ${documentTabs.length && !combineTitleAndTabs ? 'has-document-tabs' : ''} ${combineTitleAndTabs ? 'tabs-combined' : ''} ${leftPanelCollapsed ? 'left-panel-collapsed' : ''} ${rightPanelCollapsed ? 'right-panel-collapsed' : ''} ${showDeletedLabels ? '' : 'hide-deleted-labels'}`}
       style={
         {
           '--left-panel-width': `${leftPanelCollapsed ? 42 : leftPanelWidth}px`,
@@ -739,7 +750,18 @@ export default function PdfEditor() {
         />
 
         <section className="workspace">
-          <EditorToolbar editor={editor} />
+          <EditorToolbar
+            editor={editor}
+            motionEnabled={motionEnabled}
+            onMotionEnabledChange={(enabled) => {
+              setMotionEnabled(enabled);
+              try {
+                window.localStorage.setItem('paperly-motion-enabled', String(enabled));
+              } catch {
+                /* local preference is optional */
+              }
+            }}
+          />
 
           <EditorCanvas editor={editor} />
         </section>
