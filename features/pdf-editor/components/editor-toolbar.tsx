@@ -10,6 +10,8 @@ import type { FormBlock, VectorKind } from '../types';
 import type { PdfEditorController } from '../hooks/use-pdf-editor';
 
 type Props = {
+  motionEnabled: boolean;
+  onMotionEnabledChange: (enabled: boolean) => void;
   editor: Pick<
     PdfEditorController,
     | 'imageUploadRef'
@@ -80,7 +82,7 @@ type Props = {
   >;
 };
 
-export function EditorToolbar({ editor }: Props) {
+export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: Props) {
   const drawPopoverRef = useRef<HTMLDetailsElement>(null);
   const ocrPopoverRef = useRef<HTMLDetailsElement>(null);
   const [autoCloseToolPopups, setAutoCloseToolPopups] = useState(false);
@@ -525,6 +527,14 @@ export function EditorToolbar({ editor }: Props) {
         </summary>
         <div className="toolbar-popover-panel align-right">
           <strong>View options</strong>
+          <button
+            className={`menu-toggle ${motionEnabled ? 'active' : ''}`}
+            onClick={() => onMotionEnabledChange(!motionEnabled)}
+          >
+            <span>Interface animations</span>
+            <b>{motionEnabled ? 'On' : 'Off'}</b>
+          </button>
+          <small className="shortcut-hint">Smooth menus and control feedback.</small>
           <button
             className={`menu-toggle ${autoCloseToolPopups ? 'active' : ''}`}
             onClick={() =>

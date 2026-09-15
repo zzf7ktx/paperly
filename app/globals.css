@@ -6341,3 +6341,64 @@ select:not([multiple]) {
 .page-item .thumbnail { margin-bottom: 4px; }
 .page-item-actions { display: flex; gap: 4px; justify-content: center; padding: 0 8px; }
 .dark-mode .page-actions button, .dark-mode .page-item-actions button { background: #26312b; border-color: #47544c; }
+
+/* Interface motion is limited to editor chrome, never PDF page content. */
+@keyframes paperly-menu-in {
+  from { opacity: 0; transform: translateY(-6px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes paperly-dialog-in {
+  from { opacity: 0; transform: translateY(12px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .app-shell:not(.motion-off) :is(
+    .header-actions button,
+    .toolbar-group > button,
+    .toolbar-popover > summary,
+    .toolbar-popover-panel button,
+    .property-content button,
+    .property-head button,
+    .page-rail button,
+    .document-tab,
+    .document-tab-select,
+    .property-tabs button,
+    .paperly-select > summary
+  ) {
+    transition: background-color 160ms ease, border-color 160ms ease,
+      color 160ms ease, box-shadow 180ms ease, opacity 160ms ease;
+  }
+  .app-shell:not(.motion-off) :is(
+    .header-actions button,
+    .toolbar-group > button,
+    .toolbar-popover > summary,
+    .page-rail .page-item-actions button
+  ):hover:not(:disabled) { box-shadow: 0 3px 10px #15382d1f; }
+  .app-shell:not(.motion-off) :is(
+    .header-actions button,
+    .toolbar-group > button,
+    .toolbar-popover > summary,
+    .page-rail .page-item-actions button
+  ):active:not(:disabled) { transform: scale(.97); }
+  .app-shell:not(.motion-off) :is(
+    .toolbar-popover[open] > .toolbar-popover-panel,
+    .header-more-menu[open] > div,
+    .page-import-menu[open] > .page-import-options,
+    .paperly-select[open] > .field-type-options,
+    .property-select-menu[open] > .field-type-options
+  ) { animation: paperly-menu-in 180ms cubic-bezier(.2,.8,.2,1) both; }
+  .app-shell:not(.motion-off) .new-pdf-dialog[open] {
+    animation: paperly-dialog-in 220ms cubic-bezier(.2,.8,.2,1) both;
+  }
+  .app-shell:not(.motion-off) .new-pdf-dialog::backdrop {
+    animation: paperly-menu-in 220ms ease both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell *, .app-shell *::before, .app-shell *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
