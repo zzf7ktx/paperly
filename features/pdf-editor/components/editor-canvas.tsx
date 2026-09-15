@@ -4,7 +4,8 @@ import {
   Fragment,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useState,
 } from 'react';
 import { DemoDocument } from './demo-document';
 import { FormBackdropLayer } from './form-backdrop-layer';
@@ -221,6 +222,14 @@ export function EditorCanvas({ editor }: Props) {
     stopCanvasPan,
     zoomCanvasWithWheel,
   } = editor;
+  const [canvasDraftVector, setCanvasDraftVector] = useState(draftVector);
+
+  useEffect(() => {
+    const updateDraft = (event: Event) =>
+      setCanvasDraftVector((event as CustomEvent<typeof draftVector>).detail);
+    window.addEventListener('paperly-draft-vector', updateDraft);
+    return () => window.removeEventListener('paperly-draft-vector', updateDraft);
+  }, []);
   return (
     <div
       ref={canvasWrapRef}
@@ -290,7 +299,7 @@ export function EditorCanvas({ editor }: Props) {
                 if (isFormOwnedVector(currentPage, vector)) return null;
                 const edit = vectorEdits[`${currentPage}:${vector.id}`] || {};
                 const changed = !vector.added && Object.keys(edit).some((property) => property !== 'deleted');
-                return changed || edit.deleted ? (
+                return !vector.added && (changed || edit.deleted) ? (
                   <rect
                     key={`erase-${vector.id}`}
                     x={vector.x - 1}
@@ -301,7 +310,7 @@ export function EditorCanvas({ editor }: Props) {
                   />
                 ) : null;
               })}
-              {[...pages[currentPage].vectors, ...(draftVector ? [draftVector] : [])].map((vector) => {
+              {[...pages[currentPage].vectors, ...(canvasDraftVector ? [canvasDraftVector] : [])].map((vector) => {
                 const key = `${currentPage}:${vector.id}`;
                 const edit = vectorEdits[key] || {};
                 if (edit.deleted) return null;
@@ -314,7 +323,7 @@ export function EditorCanvas({ editor }: Props) {
                 const strokeWidth = edit.strokeWidth ?? vector.strokeWidth;
                 const changed =
                   vector.added ||
-                  draftVector?.id === vector.id ||
+                  canvasDraftVector?.id === vector.id ||
                   Object.keys(edit).some((property) => property !== 'deleted');
                 const selectedVector = selectedVectorId === vector.id;
                 const formOwnedVector = isFormOwnedVector(currentPage, vector);
@@ -322,9 +331,9 @@ export function EditorCanvas({ editor }: Props) {
                   if (marqueeSuppressClickRef.current) return;
                   if (formOwnedVector || (!vector.added && !selectPdfShapes)) return;
                   if (!selectPdfShapes) event.stopPropagation();
-                  if (moveShapeContents && !event.shiftKey) {
+                  if (moveShapeContents && !event.shiftKey)
                     setSelectedElements(relatedShapeElements(currentPage, [vector.id]));
-                  } else
+                  else
                     updateElementSelection(
                       { page: currentPage, kind: 'vector', id: vector.id },
                       event.shiftKey,

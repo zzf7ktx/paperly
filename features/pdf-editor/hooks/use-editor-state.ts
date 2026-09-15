@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   type XfaDrawEdit,
   type XfaFieldKind,
@@ -135,11 +135,13 @@ export function useEditorState() {
   const [vectorEdits, setVectorEdits] = useState<Record<string, VectorEdit>>({});
   const [selectedVectorId, setSelectedVectorId] = useState<string | null>(null);
   const [selectPdfShapes, setSelectPdfShapes] = useState(false);
-  const [moveShapeContents, setMoveShapeContents] = useState(true);
+  const [moveShapeContents, setMoveShapeContents] = useState(false);
   const [drawFill, setDrawFill] = useState('#dceee8');
   const [drawStroke, setDrawStroke] = useState('#286d5b');
   const [drawStrokeWidth, setDrawStrokeWidth] = useState(1.5);
-  const [draftVector, setDraftVector] = useState<VectorBlock | null>(null);
+  const setDraftVector = useCallback((draftVector: VectorBlock | null) => {
+    window.dispatchEvent(new CustomEvent('paperly-draft-vector', { detail: draftVector }));
+  }, []);
   const [imageCaptures, setImageCaptures] = useState<Record<string, string>>({});
   const [selectedImage, setSelectedImage] = useState<{ kind: 'existing' | 'added'; id: string } | null>(null);
   const [selectedAddedId, setSelectedAddedId] = useState<string | null>(null);
@@ -336,7 +338,7 @@ export function useEditorState() {
     setDrawStroke,
     drawStrokeWidth,
     setDrawStrokeWidth,
-    draftVector,
+    draftVector: null as VectorBlock | null,
     setDraftVector,
     imageCaptures,
     setImageCaptures,
