@@ -2,7 +2,7 @@
 
 import { ColorPicker } from './color-picker';
 
-import { type CSSProperties } from 'react';
+import { type CSSProperties, type RefObject, useEffect, useRef, useState } from 'react';
 import { type XfaFieldKind } from '../../../lib/xfa-template';
 import { PaperlySelect } from './paperly-select';
 import { normalFieldKindOptions, xfaFieldKindOptions } from '../constants';
@@ -79,6 +79,9 @@ type Props = {
 };
 
 export function EditorToolbar({ editor }: Props) {
+  const drawPopoverRef = useRef<HTMLDetailsElement>(null);
+  const ocrPopoverRef = useRef<HTMLDetailsElement>(null);
+  const [autoCloseToolPopups, setAutoCloseToolPopups] = useState(false);
   const {
     imageUploadRef,
     xfaImageReplaceRef,
@@ -144,13 +147,28 @@ export function EditorToolbar({ editor }: Props) {
     runOcr,
     toggleTitleAndTabs,
   } = editor;
+
+  useEffect(() => {
+    try {
+      // Load after hydration so the server and first client render stay identical.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setAutoCloseToolPopups(window.localStorage.getItem('paperly-auto-close-tool-popups') === 'true');
+    } catch {
+      /* local preference is optional */
+    }
+  }, []);
+
+  const closeToolPopup = (popover: RefObject<HTMLDetailsElement | null>) => {
+    if (autoCloseToolPopups) popover.current?.removeAttribute('open');
+  };
+
   return (
     <div className="formatbar" aria-label="Text formatting toolbar">
       <div className="toolbar-group insert-tools" aria-label="Insert tools">
         <button
           className={`tool select-tool-button ${tool === 'select' ? 'active' : ''}`}
           onClick={() => setTool('select')}
-          title="Select and edit elements"
+          title="Select and edit elements (Esc)"
         >
           <span aria-hidden="true">↖</span>
           <b>Select</b>
@@ -184,7 +202,7 @@ export function EditorToolbar({ editor }: Props) {
           ▧<span>Image</span>
         </button>
       </div>
-      <details className="toolbar-popover draw-popover">
+      <details ref={drawPopoverRef} className="toolbar-popover draw-popover">
         <summary className={tool.startsWith('draw-') || selectPdfShapes ? 'active' : ''}>
           Draw <b>▾</b>
         </summary>
@@ -204,6 +222,7 @@ export function EditorToolbar({ editor }: Props) {
                 return next;
               });
               setTool('select');
+              closeToolPopup(drawPopoverRef);
             }}
           >
             <span>Select PDF shapes</span>
@@ -218,7 +237,10 @@ export function EditorToolbar({ editor }: Props) {
                 key={kind}
                 className={tool === `draw-${kind}` ? 'active' : ''}
                 disabled={!pdfBytes}
-                onClick={() => setTool(`draw-${kind}` as typeof tool)}
+                onClick={() => {
+                  setTool(`draw-${kind}` as typeof tool);
+                  closeToolPopup(drawPopoverRef);
+                }}
               >
                 {kind}
               </button>
@@ -352,7 +374,7 @@ export function EditorToolbar({ editor }: Props) {
           </div>
         </div>
       </details>
-      <details className="toolbar-popover ocr-popover">
+      <details ref={ocrPopoverRef} className="toolbar-popover ocr-popover">
         <summary className={ocrBusy || tool === 'ocr-region' ? 'active' : ''}>
           OCR <b>{ocrBusy ? `${ocrProgress}%` : isLikelyScannedPage ? 'Scan' : '▾'}</b>
         </summary>
@@ -395,7 +417,10 @@ export function EditorToolbar({ editor }: Props) {
           <button
             className={`menu-toggle ${tool === 'ocr-region' ? 'active' : ''}`}
             disabled={!pdfBytes || ocrBusy}
-            onClick={() => setTool((current) => (current === 'ocr-region' ? 'select' : 'ocr-region'))}
+            onClick={() => {
+              setTool((current) => (current === 'ocr-region' ? 'select' : 'ocr-region'));
+              closeToolPopup(ocrPopoverRef);
+            }}
           >
             <span>Select an area</span>
             <b>{tool === 'ocr-region' ? 'Cancel' : 'Draw'}</b>
@@ -496,6 +521,25 @@ export function EditorToolbar({ editor }: Props) {
         </summary>
         <div className="toolbar-popover-panel align-right">
           <strong>View options</strong>
+          <button
+            className={`menu-toggle ${autoCloseToolPopups ? 'active' : ''}`}
+            onClick={() =>
+              setAutoCloseToolPopups((enabled) => {
+                const next = !enabled;
+                try {
+                  window.localStorage.setItem('paperly-auto-close-tool-popups', String(next));
+                } catch {
+                  /* local preference is optional */
+                }
+                return next;
+              })
+            }
+          >
+            <span>Auto-close and keep tools</span>
+            <b>{autoCloseToolPopups ? 'On' : 'Off'}</b>
+          </button>
+          <small className="shortcut-hint">Close Draw and OCR after choosing a tool, and keep it active after use.</small>
+          <small className="shortcut-hint"><kbd>Esc</kbd> returns to the Select tool.</small>
           <button
             className={`menu-toggle ${panEnabled ? 'active' : ''}`}
             disabled={!pdfBytes}

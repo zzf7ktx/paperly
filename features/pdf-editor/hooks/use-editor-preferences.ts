@@ -59,6 +59,10 @@ type Context = Pick<
   | 'pages'
   | 'setSelectedAddedId'
   | 'setSelectedImage'
+  | 'tool'
+  | 'setTool'
+  | 'setOcrRegion'
+  | 'setDraftVector'
 > & {};
 
 export function useEditorPreferences({
@@ -116,6 +120,10 @@ export function useEditorPreferences({
   pages,
   setSelectedAddedId,
   setSelectedImage,
+  tool,
+  setTool,
+  setOcrRegion,
+  setDraftVector,
 }: Context) {
   const preferencesLoaded = useRef(false);
   useEffect(() => {
@@ -224,6 +232,14 @@ export function useEditorPreferences({
         target instanceof HTMLSelectElement ||
         (target instanceof HTMLElement &&
           (target.isContentEditable || Boolean(target.closest('button, a, summary'))));
+      if (!isEditing && event.key === 'Escape' && tool !== 'select') {
+        event.preventDefault();
+        document.dispatchEvent(new Event('pointercancel'));
+        setOcrRegion(null);
+        setDraftVector(null);
+        setTool('select');
+        return;
+      }
       if (
         isEditing ||
         (event.key !== 'Delete' && event.key !== 'Backspace') ||
@@ -236,7 +252,7 @@ export function useEditorPreferences({
     };
     window.addEventListener('keydown', keyDown);
     return () => window.removeEventListener('keydown', keyDown);
-  }, [selectedElements.length, selectedVectorId]);
+  }, [selectedElements.length, selectedVectorId, setDraftVector, setOcrRegion, setTool, tool]);
 
   useEffect(() => {
     if (selectedXfaKey || selectedXfaDrawKey) setSelectedElements([]);

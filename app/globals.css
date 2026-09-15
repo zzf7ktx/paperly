@@ -677,15 +677,31 @@ button:disabled {
   flex: 0 0 auto;
 }
 .header-actions .update-button {
-  width: 32px;
-  min-width: 32px;
-  padding: 0;
+  width: 44px;
+  min-width: 44px;
+  display: grid;
+  grid-template-rows: 17px 8px;
+  place-items: center;
+  padding: 2px 3px 1px;
   font-size: 0;
 }
 .header-actions .update-button:before {
   content: '\21bb';
-  font-size: 17px;
+  grid-row: 1;
+  font-size: 15px;
   line-height: 1;
+}
+.header-actions .update-button > span { display: none; }
+.header-actions .update-button .update-version {
+  grid-row: 2;
+  max-width: 100%;
+  overflow: hidden;
+  color: currentColor;
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .header-actions .update-downloading:before,
 .header-actions .update-available:before,
@@ -5177,9 +5193,11 @@ select:not([multiple]) {
   overflow: visible;
 }
 .xfa-add-control > .paperly-select {
+  height: 32px;
   border-radius: 5px 0 0 5px;
 }
 .xfa-add-control > button {
+  height: 32px;
   border-radius: 0 5px 5px 0 !important;
 }
 .field-type-menu {

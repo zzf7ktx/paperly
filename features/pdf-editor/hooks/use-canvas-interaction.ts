@@ -3,6 +3,7 @@ import type { EditorHistorySnapshot, VectorEdit } from '../types';
 
 import { useRef, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { blockKey } from '../lib/text';
+import { keepPopupToolActive } from '../lib/tool-preferences';
 import type { AddedImage, ImageBlock, SelectedElementRef, VectorBlock, VectorKind } from '../types';
 import type { EditorState } from './use-editor-state';
 
@@ -154,7 +155,7 @@ export function useCanvasInteraction({
       if (rectangle.width > 4 && rectangle.height > 4) void runOcr(rectangle);
       else {
         setOcrRegion(null);
-        setTool('select');
+        if (!keepPopupToolActive()) setTool('select');
       }
     };
     const cancel = () => {
@@ -162,7 +163,7 @@ export function useCanvasInteraction({
       document.removeEventListener('pointerup', stop);
       document.removeEventListener('pointercancel', cancel);
       setOcrRegion(null);
-      setTool('select');
+      if (!keepPopupToolActive()) setTool('select');
     };
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', stop, { once: true });
@@ -245,7 +246,7 @@ export function useCanvasInteraction({
       setSelectedForm(null);
       setSelectedAddedId(null);
       setSelectedImage(null);
-      setTool('select');
+      if (!keepPopupToolActive()) setTool('select');
     };
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', finish, { once: true });

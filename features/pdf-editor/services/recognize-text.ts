@@ -5,6 +5,7 @@ import { browserFontFamily, cleanPdfFontName, closestStandardFont } from '../lib
 import { detectScannedLines } from '../lib/pdf-geometry';
 import { splitOcrLine } from '../lib/ocr-layout';
 import { detectOcrImages, insideOcrImage } from '../lib/ocr-images';
+import { keepPopupToolActive } from '../lib/tool-preferences';
 import type { AddedTextBox, SelectedElementRef, TextAlignment } from '../types';
 
 type Context = Pick<
@@ -534,7 +535,7 @@ export async function recognizeText(
       `Recognized ${boxes.length} text boxes${detectedVectors.length ? ` and ${detectedVectors.length} layout lines` : ''}${detectedImages.length ? ` and ${detectedImages.length} images` : ''}`,
     );
     setOcrProgress(100);
-    setTool('select');
+    if (!region || !keepPopupToolActive()) setTool('select');
     setToast(
       `${boxes.length} text boxes${detectedVectors.length ? ` + ${detectedVectors.length} table/shape lines` : ''}${detectedImages.length ? ` + ${detectedImages.length} images` : ''} added`,
     );

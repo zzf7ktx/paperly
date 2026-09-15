@@ -10,7 +10,7 @@ import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { usePdfEditor } from './hooks/use-pdf-editor';
 import type { ThemeMode } from './types';
 
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '1.0.9';
 const RELEASES_URL = 'https://github.com/zzf7ktx/paperly/releases';
 const RELEASES_API_URL = 'https://api.github.com/repos/zzf7ktx/paperly/releases/latest';
 
@@ -25,6 +25,9 @@ declare global {
     paperlyUpdater?: {
       check: () => Promise<void>;
       install: () => Promise<void>;
+      getVersion: () => Promise<string>;
+      getDownloadDirectory: () => Promise<string | null>;
+      chooseDownloadDirectory: () => Promise<string | null>;
       onStatus: (listener: (status: NativeUpdateStatus) => void) => () => void;
     };
   }
@@ -63,7 +66,9 @@ export default function PdfEditor() {
     'idle' | 'loading' | 'latest' | 'available' | 'downloading' | 'downloaded' | 'error'
   >('idle');
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  const [currentVersion, setCurrentVersion] = useState(APP_VERSION);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const [updateDownloadDirectory, setUpdateDownloadDirectory] = useState<string | null>(null);
   const {
     uploadRef,
     documentTabs,
@@ -120,6 +125,9 @@ export default function PdfEditor() {
   useEffect(() => {
     const updater = window.paperlyUpdater;
     if (!updater) return;
+
+    void updater.getVersion().then(setCurrentVersion).catch(() => undefined);
+    void updater.getDownloadDirectory().then(setUpdateDownloadDirectory).catch(() => undefined);
 
     return updater.onStatus(({ status, version, percent }) => {
       setUpdateStatus(status === 'checking' ? 'loading' : status);
@@ -474,7 +482,7 @@ export default function PdfEditor() {
                           : 'Check for updates'
             }
           >
-            {updateStatus === 'loading'
+            <span>{updateStatus === 'loading'
               ? 'Checking…'
               : updateStatus === 'downloading'
                 ? `Downloading${downloadProgress === null ? '...' : ` ${downloadProgress}%`}`
@@ -486,7 +494,8 @@ export default function PdfEditor() {
                       ? 'Up to date'
                       : updateStatus === 'error'
                         ? 'Try updates'
-                        : 'Check for updates'}
+                        : 'Check for updates'}</span>
+            <small className="update-version">v{currentVersion.replace(/^v/i, '')}</small>
           </button>
           <details ref={moreMenuRef} className="header-more-menu">
             <summary role="button" aria-label="More application options">
@@ -529,10 +538,34 @@ export default function PdfEditor() {
                           ? 'Paperly is up to date'
                           : updateStatus === 'error'
                             ? 'Check again'
-                            : 'Check for updates'}
+                            : 'Check for updates'}{' '}
+                    · v{currentVersion.replace(/^v/i, '')}
                   </small>
                 </span>
               </button>
+              {window.paperlyUpdater && (
+                <button
+                  aria-label="Choose update download folder"
+                  disabled={
+                    updateStatus === 'loading' || updateStatus === 'downloading' || updateStatus === 'downloaded'
+                  }
+                  onClick={async () => {
+                    const selected = await window.paperlyUpdater?.chooseDownloadDirectory();
+                    if (selected) setUpdateDownloadDirectory(selected);
+                    moreMenuRef.current?.removeAttribute('open');
+                  }}
+                >
+                  <b>⌑</b>
+                  <span>
+                    Update folder
+                    <small title={updateDownloadDirectory || undefined}>
+                      {updateDownloadDirectory
+                        ? updateDownloadDirectory.split(/[\\/]/).filter(Boolean).at(-1)
+                        : 'Choose an approved download location'}
+                    </small>
+                  </span>
+                </button>
+              )}
             </div>
           </details>
           <XfaXmlDialog

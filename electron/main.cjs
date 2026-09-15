@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -6,6 +6,31 @@ const path = require('node:path');
 
 let server;
 const localPort = 4174;
+let updateDownloadDirectory = null;
+
+function updaterPreferencesPath() {
+  return path.join(app.getPath('userData'), 'updater-preferences.json');
+}
+
+function loadUpdaterPreferences() {
+  try {
+    const preferences = JSON.parse(fs.readFileSync(updaterPreferencesPath(), 'utf8'));
+    if (typeof preferences.downloadDirectory === 'string' && path.isAbsolute(preferences.downloadDirectory)) {
+      updateDownloadDirectory = preferences.downloadDirectory;
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') console.warn('Unable to read updater preferences:', error);
+  }
+}
+
+function saveUpdaterPreferences() {
+  fs.mkdirSync(path.dirname(updaterPreferencesPath()), { recursive: true });
+  fs.writeFileSync(
+    updaterPreferencesPath(),
+    `${JSON.stringify({ downloadDirectory: updateDownloadDirectory }, null, 2)}\n`,
+    'utf8',
+  );
+}
 
 function sendUpdateStatus(status, details = {}) {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -14,7 +39,37 @@ function sendUpdateStatus(status, details = {}) {
 }
 
 function configureUpdater() {
+  loadUpdaterPreferences();
+  ipcMain.handle('paperly:get-app-version', () => app.getVersion());
+  ipcMain.handle('paperly:get-update-download-directory', () => updateDownloadDirectory);
+  ipcMain.handle('paperly:choose-update-download-directory', async () => {
+    const window = BrowserWindow.getFocusedWindow();
+    const options = {
+      title: 'Choose where Paperly downloads updates',
+      defaultPath: updateDownloadDirectory || app.getPath('downloads'),
+      buttonLabel: 'Use this folder',
+      properties: ['openDirectory', 'createDirectory'],
+    };
+    const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || !result.filePaths[0]) return updateDownloadDirectory;
+
+    updateDownloadDirectory = path.resolve(result.filePaths[0]);
+    saveUpdaterPreferences();
+    if (app.isPackaged) {
+      // The helper captures the cache path when first used. Recreate it so a
+      // preference changed after an update check applies to the next download.
+      autoUpdater.downloadedUpdateHelper = null;
+    }
+    return updateDownloadDirectory;
+  });
+
   if (!app.isPackaged) return;
+
+  const defaultCachePath = autoUpdater.app.baseCachePath;
+  Object.defineProperty(autoUpdater.app, 'baseCachePath', {
+    configurable: true,
+    get: () => updateDownloadDirectory || defaultCachePath,
+  });
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
