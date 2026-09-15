@@ -12,6 +12,8 @@ type Context = Pick<
   EditorState,
   | 'pdfRef'
   | 'ocrWorkerRef'
+  | 'ocrWorkerLanguageRef'
+  | 'ocrLanguage'
   | 'pages'
   | 'setPages'
   | 'currentPage'
@@ -42,6 +44,8 @@ export async function recognizeText(
   const {
     pdfRef,
     ocrWorkerRef,
+    ocrWorkerLanguageRef,
+    ocrLanguage,
     pages,
     setPages,
     currentPage,
@@ -92,7 +96,7 @@ export async function recognizeText(
       ?.drawImage(rendered, sourceX, sourceY, source.width, source.height, 0, 0, source.width, source.height);
     if (!ocrWorkerRef.current) {
       const { createWorker } = await import('tesseract.js');
-      ocrWorkerRef.current = await createWorker('eng', 1, {
+      ocrWorkerRef.current = await createWorker(ocrLanguage, 1, {
         workerPath: '/ocr/worker.min.js',
         corePath: '/ocr',
         langPath: '/ocr',
@@ -102,6 +106,10 @@ export async function recognizeText(
           setOcrProgress(Math.round((message.progress || 0) * 100));
         },
       });
+      ocrWorkerLanguageRef.current = ocrLanguage;
+    } else if (ocrWorkerLanguageRef.current !== ocrLanguage) {
+      await ocrWorkerRef.current.reinitialize(ocrLanguage, 1);
+      ocrWorkerLanguageRef.current = ocrLanguage;
     }
     setOcrStatus('Recognizing text locally…');
     const result = await ocrWorkerRef.current.recognize(source, {}, { blocks: true, text: true });
