@@ -1,4 +1,45 @@
-import type { Edit, FormBlock, FormEdit, ImageBlock, TextBlock } from '../types';
+import type { Edit, FormBlock, FormEdit, ImageBlock, TextBlock, VectorBlock, VectorEdit } from '../types';
+
+export function vectorUnderlyingColor(
+  vectors: VectorBlock[], target: VectorBlock,
+  vectorEdits?: Record<string, VectorEdit>, pageIndex?: number,
+) {
+  const centerX = target.x + target.width / 2;
+  const centerY = target.top + target.height / 2;
+  const area = target.width * target.height;
+  const targetIndex = vectors.findIndex((vector) => vector.id === target.id);
+  return vectors
+    .map((vector, index) => ({ vector, index }))
+    .filter(({ vector, index }) =>
+      index < targetIndex &&
+      vector.id !== target.id &&
+      !vector.added &&
+      vector.kind === 'rectangle' &&
+      vector.fill !== 'transparent' &&
+      !(pageIndex !== undefined && vectorEdits?.[`${pageIndex}:${vector.id}`]?.deleted) &&
+      vector.width * vector.height > area &&
+      centerX >= vector.x &&
+      centerX <= vector.x + vector.width &&
+      centerY >= vector.top &&
+      centerY <= vector.top + vector.height,
+    )
+    .sort((first, second) => second.index - first.index)[0]?.vector.fill ||
+    '#ffffff';
+}
+
+export function filledRectangleAt(
+  vectors: VectorBlock[], x: number, top: number,
+  vectorEdits?: Record<string, VectorEdit>, pageIndex?: number,
+) {
+  return vectors.findLast((vector) =>
+    !vector.added &&
+    vector.kind === 'rectangle' &&
+    vector.fill !== 'transparent' &&
+    !(pageIndex !== undefined && vectorEdits?.[`${pageIndex}:${vector.id}`]?.deleted) &&
+    x >= vector.x && x <= vector.x + vector.width &&
+    top >= vector.top && top <= vector.top + vector.height,
+  )?.fill;
+}
 
 export function pdfColorToHex(value: unknown, fallback: string) {
   if (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value.trim())) return value.trim().toLowerCase();

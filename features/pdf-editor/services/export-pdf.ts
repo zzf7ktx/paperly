@@ -5,9 +5,10 @@ import {
   type XfaDrawEdit,
 } from '../../../lib/xfa-template';
 import type { EditorState } from '../hooks/use-editor-state';
-import { hexChannels, needsFormCleanup, needsTextCleanup } from '../lib/appearance';
+import { filledRectangleAt, hexChannels, needsFormCleanup, needsTextCleanup, vectorUnderlyingColor } from '../lib/appearance';
 import { closestStandardFont, editableBlockFont, fontFamilyIdentity } from '../lib/fonts';
 import { formBackdropGeometry, formBackdropPrimitiveGeometry } from '../lib/pdf-geometry';
+import { captureNativePdfImage, imageOverlapsEditedVectors } from '../lib/native-image';
 import { wrapTextForWidth } from '../lib/text';
 import { ocrCoverRects } from '../lib/ocr-covers';
 import type { FormBlock, FormEdit, TextBlock } from '../types';
@@ -312,6 +313,7 @@ export async function exportDocument(
       embeddedImageCache.set(dataUrl, embedded);
       return embedded;
     };
+    const pendingImageDraws: Array<() => void> = [];
     for (const [key, edit] of Object.entries(imageEdits)) {
       const separator = key.indexOf(':');
       const pageIndex = Number(key.slice(0, separator));
@@ -319,41 +321,62 @@ export async function exportDocument(
       const image = pages[pageIndex]?.images.find((entry) => entry.id === imageId);
       if (!image) continue;
       const page = pdfDocument.getPage(pageIndex);
-      const [eraseRed, eraseGreen, eraseBlue] = hexChannels(edit.eraseColor || '#ffffff');
-      page.drawRectangle({
-        x: Math.max(0, image.x - 1),
-        y: Math.max(0, page.getHeight() - image.top - image.height - 2),
-        width: image.width + 2,
-        height: image.height + 3,
-        color: rgb(eraseRed, eraseGreen, eraseBlue),
-      });
+      const [eraseRed, eraseGreen, eraseBlue] = hexChannels(
+        filledRectangleAt(
+          pages[pageIndex].vectors,
+          image.x + image.width / 2,
+          image.top + image.height / 2,
+          vectorEdits,
+          pageIndex,
+        ) || edit.eraseColor || '#ffffff',
+      );
+      const eraseLeft = Math.max(0, image.x - 1);
+      const eraseRight = Math.min(page.getWidth(), image.x + image.width + 1);
+      const eraseTop = Math.max(0, image.top - 1);
+      const eraseBottom = Math.min(page.getHeight(), image.top + image.height + 2);
+      if (eraseRight > eraseLeft && eraseBottom > eraseTop)
+        page.drawRectangle({
+          x: eraseLeft,
+          y: page.getHeight() - eraseBottom,
+          width: eraseRight - eraseLeft,
+          height: eraseBottom - eraseTop,
+          color: rgb(eraseRed, eraseGreen, eraseBlue),
+        });
       if (edit.deleted) continue;
       const capture = imageCaptures[key];
       if (!capture) continue;
       const embedded = await embedDataImage(capture);
       const drawWidth = edit.width ?? image.width;
       const drawHeight = edit.height ?? image.height;
-      page.drawImage(embedded, {
-        x: edit.x ?? image.x,
-        y: page.getHeight() - (edit.top ?? image.top) - drawHeight,
-        width: drawWidth,
-        height: drawHeight,
-      });
+      pendingImageDraws.push(() =>
+        page.drawImage(embedded, {
+          x: edit.x ?? image.x,
+          y: page.getHeight() - (edit.top ?? image.top) - drawHeight,
+          width: drawWidth,
+          height: drawHeight,
+        }),
+      );
     }
     for (const image of isXfaDocument ? [] : addedImages) {
       const page = pdfDocument.getPage(image.page);
       const embedded = await embedDataImage(image.dataUrl);
-      page.drawImage(embedded, {
-        x: image.x,
-        y: page.getHeight() - image.top - image.height,
-        width: image.width,
-        height: image.height,
-      });
+      pendingImageDraws.push(() =>
+        page.drawImage(embedded, {
+          x: image.x,
+          y: page.getHeight() - image.top - image.height,
+          width: image.width,
+          height: image.height,
+        }),
+      );
     }
     const vectorColor = (hex: string | undefined, fallback: string) => {
       const value = Number.parseInt((hex || fallback).replace('#', '').slice(0, 6), 16);
       return rgb(((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255);
     };
+    const scaledSvgPath = (path: string, scaleX: number, scaleY: number) =>
+      path.replace(/([ML])\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g, (_, command, x, y) =>
+        `${command} ${(Number(x) * scaleX).toFixed(3)} ${(Number(y) * scaleY).toFixed(3)}`,
+      );
     if (!isXfaDocument)
       for (const [key, edit] of Object.entries(edits)) {
         const [pageIndexText, blockIdText] = key.split(':');
@@ -388,14 +411,49 @@ export async function exportDocument(
         const pageHeight = pdfPage.getHeight();
         for (const vector of pageInfo.vectors) {
           const edit = vectorEdits[`${pageIndex}:${vector.id}`] || {};
-          if (!vector.added && Object.keys(edit).length)
-            pdfPage.drawRectangle({
-              x: Math.max(0, vector.x - 2),
-              y: Math.max(0, pageHeight - vector.top - vector.height - 2),
-              width: vector.width + 4,
-              height: vector.height + 4,
-              color: rgb(1, 1, 1),
+          if (vector.added || !Object.keys(edit).length) continue;
+          const eraseColor = vectorColor(
+            vectorUnderlyingColor(pageInfo.vectors, vector, vectorEdits, pageIndex), '#ffffff',
+          );
+          if (vector.kind === 'polygon' && vector.svgPath)
+            pdfPage.drawSvgPath(vector.svgPath, {
+              x: vector.x,
+              y: pageHeight - vector.top,
+              color: eraseColor,
+              borderColor: eraseColor,
+              borderWidth: 0.4,
             });
+          else {
+            const left = Math.max(0, vector.x - 2);
+            const right = Math.min(pdfPage.getWidth(), vector.x + vector.width + 2);
+            const top = Math.max(0, vector.top - 2);
+            const bottom = Math.min(pageHeight, vector.top + vector.height + 2);
+            if (right > left && bottom > top)
+              pdfPage.drawRectangle({
+                x: left,
+                y: pageHeight - bottom,
+                width: right - left,
+                height: bottom - top,
+                color: eraseColor,
+              });
+          }
+        }
+        for (const image of pageInfo.images) {
+          const key = `${pageIndex}:${image.id}`;
+          if (
+            Object.keys(imageEdits[key] || {}).length ||
+            !imageOverlapsEditedVectors(image, pageInfo, pageIndex, vectorEdits)
+          ) continue;
+          const capture =
+            (await captureNativePdfImage(pdfRef.current, pageIndex, image)) || imageCaptures[key];
+          if (!capture) continue;
+          const embedded = await embedDataImage(capture);
+          pdfPage.drawImage(embedded, {
+            x: image.x,
+            y: pageHeight - image.top - image.height,
+            width: image.width,
+            height: image.height,
+          });
         }
         for (const vector of pageInfo.vectors) {
           const edit = vectorEdits[`${pageIndex}:${vector.id}`] || {};
@@ -408,12 +466,31 @@ export async function exportDocument(
           const fill = edit.fill ?? vector.fill;
           const stroke = edit.stroke ?? vector.stroke;
           const borderWidth = edit.strokeWidth ?? vector.strokeWidth;
-          if (vector.kind === 'ellipse')
+          const shapeOpacity = edit.opacity ?? vector.opacity ?? 1;
+          if (vector.kind === 'polygon' && vector.svgPath)
+            pdfPage.drawSvgPath(
+              scaledSvgPath(
+                vector.svgPath,
+                width / Math.max(0.5, vector.width),
+                height / Math.max(0.5, vector.height),
+              ),
+              {
+                x,
+                y: pageHeight - top,
+                opacity: shapeOpacity,
+                ...(fill !== 'transparent' ? { color: vectorColor(fill, '#ffffff') } : {}),
+                ...(stroke !== 'transparent'
+                  ? { borderColor: vectorColor(stroke, '#000000'), borderWidth }
+                  : {}),
+              },
+            );
+          else if (vector.kind === 'ellipse')
             pdfPage.drawEllipse({
               x: x + width / 2,
               y: pageHeight - top - height / 2,
               xScale: width / 2,
               yScale: height / 2,
+              opacity: shapeOpacity,
               ...(fill !== 'transparent' ? { color: vectorColor(fill, '#ffffff') } : {}),
               ...(stroke !== 'transparent'
                 ? { borderColor: vectorColor(stroke, '#000000'), borderWidth }
@@ -439,6 +516,7 @@ export async function exportDocument(
                 : { x: x + width, y: pageHeight - top - height },
               color: vectorColor(stroke, '#000000'),
               thickness: borderWidth,
+              opacity: shapeOpacity,
             });
           } else if (vector.kind === 'brush' && vector.points?.length) {
             const scaleX = width / Math.max(1, vector.width);
@@ -457,6 +535,7 @@ export async function exportDocument(
                 },
                 color: vectorColor(stroke, '#000000'),
                 thickness: borderWidth,
+                opacity: shapeOpacity,
               });
             }
           } else
@@ -465,6 +544,7 @@ export async function exportDocument(
               y: pageHeight - top - height,
               width,
               height,
+              opacity: shapeOpacity,
               ...(fill !== 'transparent' ? { color: vectorColor(fill, '#ffffff') } : {}),
               ...(stroke !== 'transparent'
                 ? { borderColor: vectorColor(stroke, '#000000'), borderWidth }
@@ -472,6 +552,7 @@ export async function exportDocument(
             });
         }
       }
+    pendingImageDraws.forEach((draw) => draw());
     const pendingTextDraws: Array<() => void> = [];
     for (const [key, edit] of Object.entries(edits)) {
       const [pageIndexString, blockIdString] = key.split(':');

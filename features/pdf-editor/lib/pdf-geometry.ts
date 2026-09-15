@@ -50,7 +50,17 @@ export function extractPdfImages(pdfjs: any, viewport: any, operatorList: any): 
     const top = Math.min(...ys);
     const width = Math.max(...xs) - x;
     const height = Math.max(...ys) - top;
-    if (width >= 5 && height >= 5) images.push({ id: `image-${index}`, x, top, width, height });
+    if (width >= 5 && height >= 5)
+      images.push({
+        id: `image-${index}`,
+        x,
+        top,
+        width,
+        height,
+        ...(typeof operatorList.argsArray[index]?.[0] === 'string'
+          ? { sourceName: operatorList.argsArray[index][0] }
+          : {}),
+      });
   });
   return images;
 }
@@ -60,13 +70,24 @@ export function extractPdfVectors(pdfjs: any, viewport: any, operatorList: any):
   let fill = '#000000';
   let stroke = '#000000';
   let strokeWidth = 1;
+  let opacity = 1;
   let matrix = [1, 0, 0, 1, 0, 0];
-  const stack: Array<{ fill: string; stroke: string; strokeWidth: number; matrix: number[] }> = [];
-  let pending: { index: number; bounds: ArrayLike<number>; matrix: number[] } | null = null;
+  const stack: Array<{ fill: string; stroke: string; strokeWidth: number; opacity: number; matrix: number[] }> = [];
+  let pending: {
+    index: number;
+    bounds: ArrayLike<number>;
+    matrix: number[];
+    simple: boolean;
+    polygon: boolean;
+    path: number[];
+    opacity: number;
+  } | null = null;
   const addPending = (paintsFill: boolean, paintsStroke: boolean) => {
     if (!pending || vectors.length >= 350) return;
-    const { index, bounds, matrix: pathMatrix } = pending;
+    const { index, bounds, matrix: pathMatrix, simple, polygon, path, opacity: pathOpacity } = pending;
     pending = null;
+    // Keep unsupported compound and Bézier paths in the rendered PDF.
+    if (!simple && !polygon) return;
     const transform = pdfjs.Util.transform(viewport.transform, pathMatrix);
     const x0 = Number(bounds[0]);
     const y0 = Number(bounds[1]);
@@ -87,13 +108,33 @@ export function extractPdfVectors(pdfjs: any, viewport: any, operatorList: any):
     const top = Math.min(...ys);
     const width = Math.max(...xs) - x;
     const height = Math.max(...ys) - top;
-    if ((width < 0.5 && height < 0.5) || width > viewport.width * 0.98 || height > viewport.height * 0.98)
+    if (width < 0.5 && height < 0.5)
       return;
     const matrixScale =
       (Math.hypot(pathMatrix[0], pathMatrix[1]) + Math.hypot(pathMatrix[2], pathMatrix[3])) / 2 || 1;
+    const svgPath = polygon
+      ? (() => {
+          const parts: string[] = [];
+          for (let offset = 0; offset < path.length; ) {
+            const command = path[offset];
+            if (command === 4) {
+              parts.push('Z');
+              offset += 1;
+            } else {
+              const pointX = path[offset + 1];
+              const pointY = path[offset + 2];
+              const localX = transform[0] * pointX + transform[2] * pointY + transform[4] - x;
+              const localY = transform[1] * pointX + transform[3] * pointY + transform[5] - top;
+              parts.push(`${command === 0 ? 'M' : 'L'} ${localX.toFixed(3)} ${localY.toFixed(3)}`);
+              offset += 3;
+            }
+          }
+          return parts.join(' ');
+        })()
+      : undefined;
     vectors.push({
       id: `vector-${index}`,
-      kind: !paintsFill && (width < 2 || height < 2) ? 'line' : 'rectangle',
+      kind: polygon ? 'polygon' : !paintsFill && (width < 2 || height < 2) ? 'line' : 'rectangle',
       x,
       top,
       width: Math.max(width, 0.5),
@@ -101,12 +142,14 @@ export function extractPdfVectors(pdfjs: any, viewport: any, operatorList: any):
       fill: paintsFill ? fill : 'transparent',
       stroke: paintsStroke ? stroke : 'transparent',
       strokeWidth: paintsStroke ? strokeWidth * matrixScale : 0,
+      ...(svgPath ? { svgPath } : {}),
+      opacity: pathOpacity,
     });
   };
   operatorList.fnArray.forEach((operation: number, index: number) => {
     const args = operatorList.argsArray[index];
     if (operation === pdfjs.OPS.save) {
-      stack.push({ fill, stroke, strokeWidth, matrix: [...matrix] });
+      stack.push({ fill, stroke, strokeWidth, opacity, matrix: [...matrix] });
       return;
     }
     if (operation === pdfjs.OPS.restore) {
@@ -115,6 +158,7 @@ export function extractPdfVectors(pdfjs: any, viewport: any, operatorList: any):
         fill = saved.fill;
         stroke = saved.stroke;
         strokeWidth = saved.strokeWidth;
+        opacity = saved.opacity;
         matrix = saved.matrix;
       }
       return;
@@ -135,11 +179,55 @@ export function extractPdfVectors(pdfjs: any, viewport: any, operatorList: any):
       strokeWidth = Math.max(0.25, Number(args?.[0]) || 1);
       return;
     }
+    if (operation === pdfjs.OPS.setGState) {
+      const entries = Array.isArray(args?.[0]) ? args[0] : [];
+      const fillOpacity = entries.find((entry: unknown) => Array.isArray(entry) && entry[0] === 'ca');
+      if (fillOpacity) opacity = Math.max(0, Math.min(1, Number(fillOpacity[1]) || 0));
+      return;
+    }
     if (operation === pdfjs.OPS.constructPath) {
       const bounds = args?.[2] as ArrayLike<number> | undefined;
       if (!bounds || bounds.length < 4) return;
-      pending = { index, bounds, matrix: [...matrix] };
+      const rawPath = args?.[1];
+      const packedPath = (Array.isArray(rawPath) && rawPath.length === 1 ? rawPath[0] : rawPath) as
+        | ArrayLike<number>
+        | undefined;
+      const path = Array.from(packedPath || []);
+      const commands: number[] = [];
+      for (let offset = 0; offset < path.length; ) {
+        const command = path[offset];
+        commands.push(command);
+        offset += command === 0 || command === 1 ? 3 : command === 4 ? 1 : path.length;
+      }
+      const simpleRectangle =
+        commands.length === 5 && commands[0] === 0 &&
+        commands.slice(1, 4).every((command) => command === 1) && commands[4] === 4;
+      const corners = simpleRectangle
+        ? [0, 3, 6, 9].map((offset) => [path[offset + 1], path[offset + 2]])
+        : [];
+      const rectangleCorners =
+        corners.length === 4 &&
+        new Set(corners.map(([x]) => x.toFixed(1))).size === 2 &&
+        new Set(corners.map(([, y]) => y.toFixed(1))).size === 2 &&
+        new Set(corners.map(([x, y]) => `${x.toFixed(1)}:${y.toFixed(1)}`)).size === 4;
+      const simpleLine = commands.length === 2 && commands[0] === 0 && commands[1] === 1;
+      const polygon =
+        commands.length >= 5 && commands[0] === 0 && commands.at(-1) === 4 &&
+        commands.slice(1, -1).every((command) => command === 1) && !rectangleCorners;
       const paint = Number(args?.[0]);
+      if (paint === pdfjs.OPS.endPath) {
+        pending = null;
+        return;
+      }
+      pending = {
+        index,
+        bounds,
+        matrix: [...matrix],
+        simple: rectangleCorners || simpleLine,
+        polygon,
+        path,
+        opacity,
+      };
       if ([pdfjs.OPS.fill, pdfjs.OPS.eoFill].includes(paint)) addPending(true, false);
       else if ([pdfjs.OPS.stroke, pdfjs.OPS.closeStroke].includes(paint)) addPending(false, true);
       else if ([pdfjs.OPS.fillStroke, pdfjs.OPS.eoFillStroke].includes(paint)) addPending(true, true);

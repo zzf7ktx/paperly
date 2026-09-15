@@ -73,7 +73,14 @@ export type FormBackdrop = {
   primitives: FormBackdropPrimitive[];
 };
 
-export type ImageBlock = { id: string; x: number; top: number; width: number; height: number };
+export type ImageBlock = {
+  id: string;
+  x: number;
+  top: number;
+  width: number;
+  height: number;
+  sourceName?: string;
+};
 
 export type AddedImage = ImageBlock & { page: number; dataUrl: string; name: string };
 
@@ -86,7 +93,7 @@ export type ImageEdit = {
   eraseColor?: string;
 };
 
-export type VectorKind = 'rectangle' | 'ellipse' | 'line' | 'brush';
+export type VectorKind = 'rectangle' | 'ellipse' | 'line' | 'brush' | 'polygon';
 
 export type VectorPoint = { x: number; top: number };
 
@@ -100,6 +107,8 @@ export type VectorBlock = {
   fill: string;
   stroke: string;
   strokeWidth: number;
+  svgPath?: string;
+  opacity?: number;
   points?: VectorPoint[];
   added?: boolean;
 };

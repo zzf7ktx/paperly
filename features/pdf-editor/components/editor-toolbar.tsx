@@ -21,6 +21,14 @@ type Props = {
     | 'joinSplitCharacters'
     | 'setJoinSplitCharacters'
     | 'pdfBytes'
+    | 'pages'
+    | 'currentPage'
+    | 'setSelectedVectorId'
+    | 'setSelectedElements'
+    | 'setSelected'
+    | 'setSelectedForm'
+    | 'setSelectedAddedId'
+    | 'setSelectedImage'
     | 'isXfaDocument'
     | 'xfaAddKind'
     | 'setXfaAddKind'
@@ -96,6 +104,14 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
     joinSplitCharacters,
     setJoinSplitCharacters,
     pdfBytes,
+    pages,
+    currentPage,
+    setSelectedVectorId,
+    setSelectedElements,
+    setSelected,
+    setSelectedForm,
+    setSelectedAddedId,
+    setSelectedImage,
     isXfaDocument,
     xfaAddKind,
     setXfaAddKind,
@@ -241,6 +257,32 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
           <small className="shape-selection-hint">
             When enabled, click or drag across existing lines, boxes, and colored regions to select them.
           </small>
+          {(() => {
+            const page = pages[currentPage];
+            const backdrop = page?.vectors.findLast((vector) =>
+              !vector.added && vector.kind === 'rectangle' &&
+              vector.fill !== 'transparent' &&
+              vector.width >= page.width * 0.98 && vector.height >= page.height * 0.98,
+            );
+            return backdrop ? (
+              <button
+                className="shape-selection-toggle"
+                onClick={() => {
+                  setSelectedVectorId(backdrop.id);
+                  setSelectedElements([{ page: currentPage, kind: 'vector', id: backdrop.id }]);
+                  setSelected(null);
+                  setSelectedForm(null);
+                  setSelectedAddedId(null);
+                  setSelectedImage(null);
+                  setSelectPdfShapes(true);
+                  setTool('select');
+                  closeToolPopup(drawPopoverRef);
+                }}
+              >
+                Select page background
+              </button>
+            ) : null;
+          })()}
           <div className="draw-tool-grid">
             {(['rectangle', 'ellipse', 'line', 'brush'] as VectorKind[]).map((kind) => (
               <button

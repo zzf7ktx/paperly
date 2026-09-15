@@ -2,7 +2,7 @@
 import type { EditorHistorySnapshot } from '../types';
 
 import { type PointerEvent as ReactPointerEvent } from 'react';
-import { sampleFieldBackground, sampleImageBackground } from '../lib/appearance';
+import { sampleFieldBackground, sampleImageBackground, sampleTextBlockVisual } from '../lib/appearance';
 import { blockKey } from '../lib/text';
 import type { AddedImage, ImageBlock, SelectedElementRef } from '../types';
 import type { EditorState } from './use-editor-state';
@@ -28,6 +28,8 @@ type Context = Pick<
   | 'imageEdits'
   | 'setImageEdits'
   | 'setEdits'
+  | 'blockVisuals'
+  | 'setBlockVisuals'
   | 'setFormEdits'
   | 'formBackgrounds'
   | 'setVectorEdits'
@@ -68,6 +70,8 @@ export function useImageEditing({
   createHistorySnapshot,
   setImageEdits,
   setEdits,
+  blockVisuals,
+  setBlockVisuals,
   setFormEdits,
   formBackgrounds,
   setVectorEdits,
@@ -292,6 +296,26 @@ export function useImageEditing({
       selectedElements.filter((item) => item.kind === 'added-image').map((item) => item.id),
     );
     recordHistory(snapshot);
+    // Capture every selected block before its cleanup cover is rendered. Additive and
+    // marquee selection do not necessarily sample each block on their own.
+    if (selectedText.length && canvasRef.current && pages[currentPage]) {
+      const sampledVisuals: typeof blockVisuals = {};
+      selectedText.forEach((item) => {
+        if (item.page !== currentPage) return;
+        const block = pages[item.page]?.blocks.find((entry) => String(entry.id) === item.id);
+        if (!block) return;
+        const key = blockKey(item.page, block.id);
+        if (!blockVisuals[key])
+          sampledVisuals[key] = sampleTextBlockVisual(
+            canvasRef.current!,
+            pages[item.page].width,
+            zoom,
+            block,
+          );
+      });
+      if (Object.keys(sampledVisuals).length)
+        setBlockVisuals((visuals) => ({ ...sampledVisuals, ...visuals }));
+    }
     if (selectedText.length)
       setEdits((items) => {
         const next = { ...items };
