@@ -34,6 +34,8 @@ type Props = {
     | 'setHideScrollbars'
     | 'selectPdfShapes'
     | 'setSelectPdfShapes'
+    | 'moveShapeContents'
+    | 'setMoveShapeContents'
     | 'drawFill'
     | 'setDrawFill'
     | 'drawStroke'
@@ -105,6 +107,8 @@ export function EditorToolbar({ editor }: Props) {
     setHideScrollbars,
     selectPdfShapes,
     setSelectPdfShapes,
+    moveShapeContents,
+    setMoveShapeContents,
     drawFill,
     setDrawFill,
     drawStroke,
@@ -540,6 +544,14 @@ export function EditorToolbar({ editor }: Props) {
           </button>
           <small className="shortcut-hint">Close Draw and OCR after choosing a tool, and keep it active after use.</small>
           <small className="shortcut-hint"><kbd>Esc</kbd> returns to the Select tool.</small>
+          <button
+            className={`menu-toggle ${moveShapeContents ? 'active' : ''}`}
+            onClick={() => setMoveShapeContents((enabled) => !enabled)}
+          >
+            <span>Select related shapes</span>
+            <b>{moveShapeContents ? 'On' : 'Off'}</b>
+          </button>
+          <small className="shortcut-hint">Include touching shapes and text contained inside them.</small>
           <button
             className={`menu-toggle ${panEnabled ? 'active' : ''}`}
             disabled={!pdfBytes}

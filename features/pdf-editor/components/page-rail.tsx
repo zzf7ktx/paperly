@@ -27,6 +27,7 @@ type Props = {
     | 'setSelectedElements'
     | 'setSelectedForm'
     | 'addedBoxes'
+    | 'vectorEdits'
     | 'setSelectedImage'
     | 'setSelectedAddedId'
     | 'setSelectedVectorId'
@@ -229,6 +230,7 @@ export function PageRail({ editor }: Props) {
               <PdfThumbnail
                 page={page}
                 addedText={editor.addedBoxes.filter((box) => box.page === index)}
+                vectorEdits={editor.vectorEdits}
                 pdfRef={editor.pdfRef}
                 isXfa={editor.isXfaDocument}
                 index={index}

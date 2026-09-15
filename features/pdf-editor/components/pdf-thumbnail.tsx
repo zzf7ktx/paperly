@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { AddedTextBox, PageInfo, PagePreviewShape } from '../types';
+import type { AddedTextBox, PageInfo, PagePreviewShape, VectorEdit } from '../types';
 
 export function PdfThumbnail({
   page,
   addedText = [],
+  vectorEdits = {},
   pdfRef,
   isXfa,
   index,
@@ -15,6 +16,7 @@ export function PdfThumbnail({
 }: {
   page: PageInfo;
   addedText?: AddedTextBox[];
+  vectorEdits?: Record<string, VectorEdit>;
   pdfRef: RefObject<PDFDocumentProxy | null>;
   isXfa?: boolean;
   index: number;
@@ -23,9 +25,9 @@ export function PdfThumbnail({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [rendered, setRendered] = useState(false);
-  const pdfDocument = pdfRef.current;
   useEffect(() => {
     const canvas = canvasRef.current;
+    const pdfDocument = pdfRef.current;
     if (isXfa || !canvas || !pdfDocument) return;
     let cancelled = false;
     let task: any;
@@ -62,7 +64,7 @@ export function PdfThumbnail({
       observer.disconnect();
       task?.cancel?.();
     };
-  }, [pdfDocument, index, page, isXfa]);
+  }, [pdfRef, index, page.width, page.height, page.blocks, page.forms, page.images, isXfa]);
   const [xfaShapes, setXfaShapes] = useState<PagePreviewShape[]>([]);
   useEffect(() => {
     const pdf = pdfRef.current;
@@ -155,6 +157,9 @@ export function PdfThumbnail({
   const ocrShapes = addedText.filter((box) => box.ocrSource && box.text.trim()).slice(0, 60);
   const formShapes = page.forms.slice(0, 24);
   const imageShapes = page.images.slice(0, 12);
+  const vectors = page.vectors
+    .map((vector) => ({ ...vector, ...vectorEdits[`${index}:${vector.id}`] }))
+    .filter((vector) => !vector.deleted);
   const hasDetectedLayout =
     textShapes.length + ocrShapes.length + formShapes.length + imageShapes.length + xfaShapes.length > 0;
   return (
@@ -174,6 +179,67 @@ export function PdfThumbnail({
             className={`thumbnail-canvas ${rendered ? 'is-ready' : ''}`}
             aria-hidden="true"
           />
+        )}
+        {vectors.length > 0 && (
+          <svg
+            className="page-preview-vectors"
+            viewBox={`0 0 ${page.width} ${page.height}`}
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            {vectors.map((vector) => {
+              const common = {
+                fill: vector.kind === 'line' || vector.kind === 'brush' ? 'none' : vector.fill,
+                stroke: vector.stroke,
+                strokeWidth: Math.max(0.75, vector.strokeWidth),
+                vectorEffect: 'non-scaling-stroke' as const,
+              };
+              if (vector.kind === 'ellipse')
+                return (
+                  <ellipse
+                    key={vector.id}
+                    cx={vector.x + vector.width / 2}
+                    cy={vector.top + vector.height / 2}
+                    rx={vector.width / 2}
+                    ry={vector.height / 2}
+                    {...common}
+                  />
+                );
+              if (vector.kind === 'line') {
+                const [start, end] = vector.points || [];
+                return (
+                  <line
+                    key={vector.id}
+                    x1={start?.x ?? vector.x}
+                    y1={start?.top ?? vector.top}
+                    x2={end?.x ?? vector.x + vector.width}
+                    y2={end?.top ?? vector.top + vector.height}
+                    {...common}
+                  />
+                );
+              }
+              if (vector.kind === 'brush')
+                return (
+                  <polyline
+                    key={vector.id}
+                    points={(vector.points || []).map((point) => `${point.x},${point.top}`).join(' ')}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    {...common}
+                  />
+                );
+              return (
+                <rect
+                  key={vector.id}
+                  x={vector.x}
+                  y={vector.top}
+                  width={vector.width}
+                  height={vector.height}
+                  {...common}
+                />
+              );
+            })}
+          </svg>
         )}
         {imageShapes.map((image) => (
           <span

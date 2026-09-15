@@ -9,6 +9,7 @@ type Context = Pick<
   | 'setJoinSplitCharacters'
   | 'setHideScrollbars'
   | 'setSelectPdfShapes'
+  | 'setMoveShapeContents'
   | 'setLeftPanelWidth'
   | 'setRightPanelWidth'
   | 'setLeftPanelCollapsed'
@@ -40,6 +41,7 @@ type Context = Pick<
   | 'ocrConfidenceThreshold'
   | 'ocrRecognizeLayout'
   | 'systemDarkMode'
+  | 'moveShapeContents'
   | 'ocrWorkerRef'
   | 'selectedElements'
   | 'selectedVectorId'
@@ -71,6 +73,7 @@ export function useEditorPreferences({
   setJoinSplitCharacters,
   setHideScrollbars,
   setSelectPdfShapes,
+  setMoveShapeContents,
   setLeftPanelWidth,
   setRightPanelWidth,
   setLeftPanelCollapsed,
@@ -101,6 +104,7 @@ export function useEditorPreferences({
   ocrConfidenceThreshold,
   ocrRecognizeLayout,
   systemDarkMode,
+  moveShapeContents,
   ocrWorkerRef,
   selectedElements,
   selectedVectorId,
@@ -132,6 +136,7 @@ export function useEditorPreferences({
       setJoinSplitCharacters(window.localStorage.getItem('paperly-join-split-characters') !== 'false');
       setHideScrollbars(window.localStorage.getItem('paperly-hide-scrollbars') === 'true');
       setSelectPdfShapes(window.localStorage.getItem('paperly-select-pdf-shapes') === 'true');
+      setMoveShapeContents(window.localStorage.getItem('paperly-select-related-shapes') === 'true');
       const number = (key: string, fallback: number, min: number, max: number) => {
         const value = Number(window.localStorage.getItem(key));
         return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
@@ -181,6 +186,7 @@ export function useEditorPreferences({
         'paperly-show-deleted-labels': String(showDeletedLabels),
         'paperly-ocr-confidence-threshold': String(ocrConfidenceThreshold),
         'paperly-ocr-recognize-layout': String(ocrRecognizeLayout),
+        'paperly-select-related-shapes': String(moveShapeContents),
       };
       for (const [key, value] of Object.entries(values)) window.localStorage.setItem(key, value);
     } catch {
@@ -191,6 +197,7 @@ export function useEditorPreferences({
     fitMode,
     leftPanelCollapsed,
     leftPanelWidth,
+    moveShapeContents,
     ocrConfidenceThreshold,
     ocrRecognizeLayout,
     propertyPanelMode,

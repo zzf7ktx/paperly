@@ -241,12 +241,18 @@ export function useCanvasInteraction({
           index === currentPage ? { ...entry, vectors: [...entry.vectors, completed] } : entry,
         ),
       );
-      setSelectedVectorId(id);
+      const keepDrawing = keepPopupToolActive();
+      setSelectedVectorId(keepDrawing ? null : id);
+      setSelectedElements(
+        keepDrawing ? [] : [{ page: currentPage, kind: 'vector', id }],
+      );
       setSelected(null);
       setSelectedForm(null);
       setSelectedAddedId(null);
       setSelectedImage(null);
-      if (!keepPopupToolActive()) setTool('select');
+      setSelectedXfaKey(null);
+      setSelectedXfaDrawKey(null);
+      if (!keepDrawing) setTool('select');
     };
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', finish, { once: true });
