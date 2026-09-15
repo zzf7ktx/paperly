@@ -187,7 +187,14 @@ export default function PdfEditor() {
   const handleUpdate = async () => {
     const nativeUpdater = window.paperlyUpdater;
     if (nativeUpdater) {
-      if (updateStatus === 'downloaded') return nativeUpdater.install();
+      if (updateStatus === 'downloaded') {
+        try {
+          await nativeUpdater.install();
+        } catch {
+          setUpdateStatus('error');
+        }
+        return;
+      }
       setDownloadProgress(null);
       setUpdateStatus('loading');
       try {
@@ -408,7 +415,11 @@ export default function PdfEditor() {
               const nativeUpdater = window.paperlyUpdater;
               if (nativeUpdater) {
                 if (updateStatus === 'downloaded') {
-                  await nativeUpdater.install();
+                  try {
+                    await nativeUpdater.install();
+                  } catch {
+                    setUpdateStatus('error');
+                  }
                   return;
                 }
 
@@ -556,7 +567,7 @@ export default function PdfEditor() {
               </button>
               {window.paperlyUpdater && (
                 <button
-                  aria-label="Choose update download folder"
+                  aria-label="Choose update download and installer temp folder"
                   disabled={
                     updateStatus === 'loading' || updateStatus === 'downloading' || updateStatus === 'downloaded'
                   }
@@ -572,7 +583,7 @@ export default function PdfEditor() {
                     <small title={updateDownloadDirectory || undefined}>
                       {updateDownloadDirectory
                         ? updateDownloadDirectory.split(/[\\/]/).filter(Boolean).at(-1)
-                        : 'Choose an approved download location'}
+                        : 'Choose an approved download and installer temp location'}
                     </small>
                   </span>
                 </button>
