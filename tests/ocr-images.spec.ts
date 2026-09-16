@@ -23,6 +23,47 @@ test('ignores text-sized marks and table rules', () => {
   expect(detectOcrImages(pixels, width, height, [{ x0: 20, y0: 20, x1: 36, y1: 30 }])).toEqual([]);
 });
 
+test('removing the source scan preserves OCR-recognized shapes and logo', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.goto('/');
+  await page
+    .locator('input[type=file][accept="application/pdf,.pdf"]')
+    .setInputFiles('tests/fixtures/scanned-statement.pdf');
+  await expect(page.locator('.image-layer .existing')).toHaveCount(3, { timeout: 60_000 });
+  await page.locator('.ocr-popover > summary').click();
+  const layoutToggle = page.getByRole('button', { name: /Recognize layout/ });
+  if ((await layoutToggle.textContent())!.includes('Off')) await layoutToggle.click();
+  await page.getByText('Recognize full page', { exact: true }).click();
+  await expect(page.locator('.added-text-content').filter({ hasText: 'Please continue' })).toBeVisible({
+    timeout: 120_000,
+  });
+  await expect(page.locator('.image-layer .existing')).toHaveCount(4);
+  await expect(page.locator('.image-layer .existing img')).toHaveCount(1);
+  const largestIndex = await page.locator('.image-layer .existing').evaluateAll(
+    (elements) =>
+      elements.reduce(
+        (best, element, index) => {
+          const bounds = element.getBoundingClientRect();
+          const area = bounds.width * bounds.height;
+          return area > best.area ? { index, area } : best;
+        },
+        { index: 0, area: 0 },
+      ).index,
+  );
+  await page.locator('.image-layer .existing').nth(largestIndex).dispatchEvent('click');
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.pdf-image-box.is-deleted')).toHaveCount(1);
+  await expect(page.locator('.image-layer .existing img')).toBeVisible();
+  await expect(page.locator('.vector-layer')).toHaveClass(/above-image-cleanup/);
+  await expect(page.locator('.vector-layer .editable-vector').first()).toBeVisible();
+  await expect(page.locator('.ocr-background-cover')).toHaveCount(0);
+  const layerOrder = await page.evaluate(() => ({
+    shapes: Number(getComputedStyle(document.querySelector('.vector-layer')!).zIndex),
+    ocrText: Number(getComputedStyle(document.querySelector('.added-text-layer')!).zIndex),
+  }));
+  expect(layerOrder.ocrText).toBeGreaterThan(layerOrder.shapes);
+});
+
 for (const layout of [false, true]) {
   test(`statement logo is an image only with layout ${layout ? 'enabled' : 'disabled'}`, async ({
     page,

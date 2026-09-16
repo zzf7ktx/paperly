@@ -80,6 +80,7 @@ export type ImageBlock = {
   width: number;
   height: number;
   sourceName?: string;
+  dataUrl?: string;
 };
 
 export type AddedImage = ImageBlock & { page: number; dataUrl: string; name: string };
