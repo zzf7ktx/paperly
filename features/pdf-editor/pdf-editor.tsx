@@ -141,8 +141,14 @@ export default function PdfEditor() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setNativeUpdaterAvailable(true);
 
-    void updater.getVersion().then(setCurrentVersion).catch(() => undefined);
-    void updater.getDownloadDirectory().then(setUpdateDownloadDirectory).catch(() => undefined);
+    void updater
+      .getVersion()
+      .then(setCurrentVersion)
+      .catch(() => undefined);
+    void updater
+      .getDownloadDirectory()
+      .then(setUpdateDownloadDirectory)
+      .catch(() => undefined);
 
     return updater.onStatus(({ status, version, percent }) => {
       setUpdateStatus(status === 'checking' ? 'loading' : status);
@@ -251,7 +257,18 @@ export default function PdfEditor() {
         }}
       >
         {documentTabs.map((tab) => (
-          <div key={tab.id} className={`document-tab ${tab.id === activeDocumentId ? 'active' : ''}`}>
+          <div
+            key={tab.id}
+            className={`document-tab ${tab.id === activeDocumentId ? 'active' : ''}`}
+            onMouseDown={(event) => {
+              if (event.button === 1) event.preventDefault();
+            }}
+            onAuxClick={(event) => {
+              if (event.button !== 1) return;
+              event.preventDefault();
+              closeDocument(tab.id);
+            }}
+          >
             <button
               className="document-tab-select"
               onClick={() => switchDocument(tab.id)}
@@ -508,19 +525,21 @@ export default function PdfEditor() {
                           : 'Check for updates'
             }
           >
-            <span>{updateStatus === 'loading'
-              ? 'Checking…'
-              : updateStatus === 'downloading'
-                ? `Downloading${downloadProgress === null ? '...' : ` ${downloadProgress}%`}`
-                : updateStatus === 'downloaded'
-                  ? `Install ${latestVersion ?? 'update'}`
-                  : updateStatus === 'available'
-                    ? `Update ${latestVersion ?? ''}`
-                    : updateStatus === 'latest'
-                      ? 'Up to date'
-                      : updateStatus === 'error'
-                        ? 'Try updates'
-                        : 'Check for updates'}</span>
+            <span>
+              {updateStatus === 'loading'
+                ? 'Checking…'
+                : updateStatus === 'downloading'
+                  ? `Downloading${downloadProgress === null ? '...' : ` ${downloadProgress}%`}`
+                  : updateStatus === 'downloaded'
+                    ? `Install ${latestVersion ?? 'update'}`
+                    : updateStatus === 'available'
+                      ? `Update ${latestVersion ?? ''}`
+                      : updateStatus === 'latest'
+                        ? 'Up to date'
+                        : updateStatus === 'error'
+                          ? 'Try updates'
+                          : 'Check for updates'}
+            </span>
             <small className="update-version">v{currentVersion.replace(/^v/i, '')}</small>
           </button>
           <details ref={moreMenuRef} className="header-more-menu">
@@ -573,7 +592,9 @@ export default function PdfEditor() {
                 <button
                   aria-label="Choose update download and installer temp folder"
                   disabled={
-                    updateStatus === 'loading' || updateStatus === 'downloading' || updateStatus === 'downloaded'
+                    updateStatus === 'loading' ||
+                    updateStatus === 'downloading' ||
+                    updateStatus === 'downloaded'
                   }
                   onClick={async () => {
                     const selected = await window.paperlyUpdater?.chooseDownloadDirectory();
