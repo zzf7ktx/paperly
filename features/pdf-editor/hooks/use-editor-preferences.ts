@@ -21,6 +21,7 @@ type Context = Pick<
   | 'setSnapMode'
   | 'setSnapAnchor'
   | 'setShowDeletedLabels'
+  | 'setRemoveOriginalContent'
   | 'setOcrConfidenceThreshold'
   | 'setOcrLanguage'
   | 'setOcrRecognizeLayout'
@@ -39,6 +40,7 @@ type Context = Pick<
   | 'snapMode'
   | 'snapAnchor'
   | 'showDeletedLabels'
+  | 'removeOriginalContent'
   | 'ocrConfidenceThreshold'
   | 'ocrLanguage'
   | 'ocrRecognizeLayout'
@@ -88,6 +90,7 @@ export function useEditorPreferences({
   setSnapMode,
   setSnapAnchor,
   setShowDeletedLabels,
+  setRemoveOriginalContent,
   setOcrConfidenceThreshold,
   setOcrLanguage,
   setOcrRecognizeLayout,
@@ -105,6 +108,7 @@ export function useEditorPreferences({
   snapMode,
   snapAnchor,
   showDeletedLabels,
+  removeOriginalContent,
   ocrConfidenceThreshold,
   ocrLanguage,
   ocrRecognizeLayout,
@@ -163,6 +167,7 @@ export function useEditorPreferences({
       const storedSnapAnchor = window.localStorage.getItem('paperly-snap-anchor');
       if (storedSnapAnchor === 'start' || storedSnapAnchor === 'center' || storedSnapAnchor === 'end') setSnapAnchor(storedSnapAnchor);
       setShowDeletedLabels(window.localStorage.getItem('paperly-show-deleted-labels') !== 'false');
+      setRemoveOriginalContent(window.localStorage.getItem('paperly-remove-original-content') === 'true');
       setOcrConfidenceThreshold(number('paperly-ocr-confidence-threshold', 65, 30, 95));
       setOcrLanguage(window.localStorage.getItem('paperly-ocr-language') === 'vie' ? 'vie' : 'eng');
       setOcrRecognizeLayout(window.localStorage.getItem('paperly-ocr-recognize-layout') !== 'false');
@@ -191,6 +196,7 @@ export function useEditorPreferences({
         'paperly-snap-mode': snapMode,
         'paperly-snap-anchor': snapAnchor,
         'paperly-show-deleted-labels': String(showDeletedLabels),
+        'paperly-remove-original-content': String(removeOriginalContent),
         'paperly-ocr-confidence-threshold': String(ocrConfidenceThreshold),
         'paperly-ocr-language': ocrLanguage,
         'paperly-ocr-recognize-layout': String(ocrRecognizeLayout),
@@ -213,6 +219,7 @@ export function useEditorPreferences({
     rightPanelCollapsed,
     rightPanelWidth,
     showDeletedLabels,
+    removeOriginalContent,
     snapAnchor,
     snapEnabled,
     snapMode,

@@ -21,6 +21,14 @@ type Props = {
     | 'joinSplitCharacters'
     | 'setJoinSplitCharacters'
     | 'pdfBytes'
+    | 'pages'
+    | 'currentPage'
+    | 'setSelectedVectorId'
+    | 'setSelectedElements'
+    | 'setSelected'
+    | 'setSelectedForm'
+    | 'setSelectedAddedId'
+    | 'setSelectedImage'
     | 'isXfaDocument'
     | 'xfaAddKind'
     | 'setXfaAddKind'
@@ -63,6 +71,8 @@ type Props = {
     | 'setSnapAnchor'
     | 'showDeletedLabels'
     | 'setShowDeletedLabels'
+    | 'removeOriginalContent'
+    | 'setRemoveOriginalContent'
     | 'setSnapGuides'
     | 'activeKey'
     | 'activeEdit'
@@ -96,6 +106,14 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
     joinSplitCharacters,
     setJoinSplitCharacters,
     pdfBytes,
+    pages,
+    currentPage,
+    setSelectedVectorId,
+    setSelectedElements,
+    setSelected,
+    setSelectedForm,
+    setSelectedAddedId,
+    setSelectedImage,
     isXfaDocument,
     xfaAddKind,
     setXfaAddKind,
@@ -138,6 +156,8 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
     setSnapAnchor,
     showDeletedLabels,
     setShowDeletedLabels,
+    removeOriginalContent,
+    setRemoveOriginalContent,
     setSnapGuides,
     activeKey,
     activeEdit,
@@ -171,9 +191,27 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
   const closeToolPopup = (popover: RefObject<HTMLDetailsElement | null>) => {
     if (autoCloseToolPopups) popover.current?.removeAttribute('open');
   };
+  const currentPageData = pages[currentPage];
+  const pageBackground = currentPageData?.vectors.findLast(
+    (vector) =>
+      !vector.added &&
+      vector.kind === 'rectangle' &&
+      vector.fill !== 'transparent' &&
+      vector.width >= currentPageData.width * 0.98 &&
+      vector.height >= currentPageData.height * 0.98,
+  );
 
   return (
-    <div className="formatbar" aria-label="Text formatting toolbar">
+    <div
+      className="formatbar"
+      aria-label="PDF editing toolbar"
+      onClick={(event) => {
+        if (!autoCloseToolPopups || !(event.target instanceof Element)) return;
+        const button = event.target.closest('button');
+        if (!button || button.classList.contains('paperly-color-trigger')) return;
+        button.closest<HTMLDetailsElement>('.toolbar-popover[open]')?.removeAttribute('open');
+      }}
+    >
       <div className="toolbar-group insert-tools" aria-label="Insert tools">
         <button
           className={`tool select-tool-button ${tool === 'select' ? 'active' : ''}`}
@@ -218,6 +256,7 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
         </summary>
         <div className="toolbar-popover-panel">
           <strong>Drawing tools</strong>
+          <label>Existing content</label>
           <button
             className={`shape-selection-toggle ${selectPdfShapes ? 'active' : ''}`}
             disabled={!pdfBytes}
@@ -241,6 +280,37 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
           <small className="shape-selection-hint">
             When enabled, click or drag across existing lines, boxes, and colored regions to select them.
           </small>
+          <button
+            className={`shape-selection-toggle ${moveShapeContents ? 'active' : ''}`}
+            onClick={() => setMoveShapeContents((enabled) => !enabled)}
+          >
+            <span>Select related shapes</span>
+            <b>{moveShapeContents ? 'On' : 'Off'}</b>
+          </button>
+          <small className="shape-selection-hint">
+            Include touching shapes and text contained inside them.
+          </small>
+          <button
+            className="shape-selection-toggle"
+            disabled={!pageBackground}
+            title={pageBackground ? 'Select the detected full-page background' : 'No page background detected'}
+            onClick={() => {
+              if (!pageBackground) return;
+              setSelectedVectorId(pageBackground.id);
+              setSelectedElements([{ page: currentPage, kind: 'vector', id: pageBackground.id }]);
+              setSelected(null);
+              setSelectedForm(null);
+              setSelectedAddedId(null);
+              setSelectedImage(null);
+              setSelectPdfShapes(true);
+              setTool('select');
+              closeToolPopup(drawPopoverRef);
+            }}
+          >
+            <span>Select page background</span>
+            <b>{pageBackground ? 'Ready' : 'None'}</b>
+          </button>
+          <label>New shapes</label>
           <div className="draw-tool-grid">
             {(['rectangle', 'ellipse', 'line', 'brush'] as VectorKind[]).map((kind) => (
               <button
@@ -400,15 +470,25 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
             </span>
           )}
           <label>Recognition language</label>
-          <PaperlySelect
-            label="Recognition language"
-            value={ocrLanguage}
-            disabled={ocrBusy}
-            className="ocr-language-select"
-            options={[{ value: 'eng', label: 'English' }, { value: 'vie', label: 'Vietnamese' }]}
-            onChange={(value) => setOcrLanguage(value === 'vie' ? 'vie' : 'eng')}
-          />
-          <small className="ocr-language-note">English and Vietnamese models installed locally</small>
+          <div className="menu-segmented ocr-language-options" role="group" aria-label="Recognition language">
+            <button
+              className={ocrLanguage === 'eng' ? 'active' : ''}
+              disabled={ocrBusy}
+              aria-pressed={ocrLanguage === 'eng'}
+              onClick={() => setOcrLanguage('eng')}
+            >
+              English
+            </button>
+            <button
+              className={ocrLanguage === 'vie' ? 'active' : ''}
+              disabled={ocrBusy}
+              aria-pressed={ocrLanguage === 'vie'}
+              onClick={() => setOcrLanguage('vie')}
+            >
+              Vietnamese
+            </button>
+          </div>
+          <small className="ocr-language-note">Models are installed locally.</small>
           <button
             className={`menu-toggle ocr-layout-toggle ${ocrRecognizeLayout ? 'active' : ''}`}
             disabled={ocrBusy}
@@ -525,20 +605,45 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
         </>
       )}
       <span className="spacer" />
-      <details className="toolbar-popover view-popover">
-        <summary className={panEnabled ? 'active' : ''}>
-          View <b>▾</b>
+      <details className="toolbar-popover options-popover">
+        <summary>
+          Options <b>▾</b>
         </summary>
         <div className="toolbar-popover-panel align-right">
-          <strong>View options</strong>
+          <strong>Editor options</strong>
+          <label>Document text</label>
           <button
-            className={`menu-toggle ${motionEnabled ? 'active' : ''}`}
-            onClick={() => onMotionEnabledChange(!motionEnabled)}
+            className={`menu-toggle ${joinSplitCharacters ? 'active' : ''}`}
+            onClick={() =>
+              setJoinSplitCharacters((enabled) => {
+                const next = !enabled;
+                try {
+                  window.localStorage.setItem('paperly-join-split-characters', String(next));
+                } catch {
+                  /* local preference is optional */
+                }
+                return next;
+              })
+            }
           >
-            <span>Interface animations</span>
-            <b>{motionEnabled ? 'On' : 'Off'}</b>
+            <span>Join nearby text boxes</span>
+            <b>{joinSplitCharacters ? 'On' : 'Off'}</b>
           </button>
-          <small className="shortcut-hint">Smooth menus and control feedback.</small>
+          <small className="shortcut-hint">
+            Merge adjacent text boxes based on character spacing when opening a PDF.
+          </small>
+          <label>Export</label>
+          <button
+            className={`menu-toggle ${removeOriginalContent ? 'active' : ''}`}
+            onClick={() => setRemoveOriginalContent((enabled) => !enabled)}
+          >
+            <span>Remove original content</span>
+            <b>{removeOriginalContent ? 'On' : 'Off'}</b>
+          </button>
+          <small className="shortcut-hint">
+            Remove selected original content on export while keeping unaffected PDF text interactive.
+          </small>
+          <label>Menu behavior</label>
           <button
             className={`menu-toggle ${autoCloseToolPopups ? 'active' : ''}`}
             onClick={() =>
@@ -553,19 +658,19 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
               })
             }
           >
-            <span>Auto-close and keep tools</span>
+            <span>Auto-close menus</span>
             <b>{autoCloseToolPopups ? 'On' : 'Off'}</b>
           </button>
-          <small className="shortcut-hint">Close Draw and OCR after choosing a tool, and keep it active after use.</small>
-          <small className="shortcut-hint"><kbd>Esc</kbd> returns to the Select tool.</small>
-          <button
-            className={`menu-toggle ${moveShapeContents ? 'active' : ''}`}
-            onClick={() => setMoveShapeContents((enabled) => !enabled)}
-          >
-            <span>Select related shapes</span>
-            <b>{moveShapeContents ? 'On' : 'Off'}</b>
-          </button>
-          <small className="shortcut-hint">Include touching shapes and text contained inside them.</small>
+          <small className="shortcut-hint">Close any toolbar menu after choosing an action.</small>
+        </div>
+      </details>
+      <details className="toolbar-popover view-popover">
+        <summary className={panEnabled ? 'active' : ''}>
+          View <b>▾</b>
+        </summary>
+        <div className="toolbar-popover-panel align-right">
+          <strong>View options</strong>
+          <label>Canvas</label>
           <button
             className={`menu-toggle ${panEnabled ? 'active' : ''}`}
             disabled={!pdfBytes}
@@ -595,6 +700,15 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
             <b>{hideScrollbars ? 'Hidden' : 'Shown'}</b>
           </button>
           <small className="shortcut-hint">Scrolling, wheel zoom, and panning still work while hidden.</small>
+          <button
+            className={`menu-toggle ${showDeletedLabels ? 'active' : ''}`}
+            disabled={!pdfBytes}
+            onClick={() => setShowDeletedLabels((visible) => !visible)}
+          >
+            <span>Deleted elements</span>
+            <b>{showDeletedLabels ? 'Shown' : 'Hidden'}</b>
+          </button>
+          <small className="shortcut-hint">Show or hide deleted regions on the canvas.</small>
           <label>Fit page</label>
           <div className="menu-segmented">
             <button
@@ -612,35 +726,15 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
               Content
             </button>
           </div>
+          <label>Interface</label>
           <button
-            className={`menu-toggle ${joinSplitCharacters ? 'active' : ''}`}
-            onClick={() =>
-              setJoinSplitCharacters((enabled) => {
-                const next = !enabled;
-                try {
-                  window.localStorage.setItem('paperly-join-split-characters', String(next));
-                } catch {
-                  /* local preference is optional */
-                }
-                return next;
-              })
-            }
+            className={`menu-toggle ${motionEnabled ? 'active' : ''}`}
+            onClick={() => onMotionEnabledChange(!motionEnabled)}
           >
-            <span>Join split characters</span>
-            <b>{joinSplitCharacters ? 'On' : 'Off'}</b>
+            <span>Interface animations</span>
+            <b>{motionEnabled ? 'On' : 'Off'}</b>
           </button>
-          <small className="shortcut-hint">Applies when opening or reopening a PDF.</small>
-          <button
-            className={`menu-toggle ${showDeletedLabels ? 'active' : ''}`}
-            disabled={!pdfBytes}
-            onClick={() => setShowDeletedLabels((visible) => !visible)}
-          >
-            <span>Deleted elements</span>
-            <b>{showDeletedLabels ? 'Shown' : 'Hidden'}</b>
-          </button>
-          <small className="shortcut-hint">
-            Hide deleted regions completely so they cannot block selecting content underneath.
-          </small>
+          <small className="shortcut-hint">Smooth menus and control feedback.</small>
           {documentTabs.length > 0 && (
             <button
               className={`menu-toggle ${combineTitleAndTabs ? 'active' : ''}`}

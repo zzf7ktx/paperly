@@ -226,10 +226,14 @@ export function useEditorSelection({
         deleted: edit.deleted,
       };
     };
+    const selectedIds = new Set(seedIds);
     const candidates = page.vectors
       .map(geometry)
-      .filter((entry) => !entry.deleted && !isFormOwnedVector(pageIndex, entry.vector));
-    const selectedIds = new Set(seedIds);
+      .filter((entry) =>
+        !entry.deleted && !isFormOwnedVector(pageIndex, entry.vector) &&
+        (selectedIds.has(entry.vector.id) ||
+          entry.width < page.width * 0.98 || entry.height < page.height * 0.98),
+      );
     const touches = (first: ReturnType<typeof geometry>, second: ReturnType<typeof geometry>) => {
       const gap = 2.5;
       return (
@@ -285,17 +289,17 @@ export function useEditorSelection({
     const centerX = block.x + block.width / 2;
     const centerY = block.top + block.height / 2;
     return pages[pageIndex]?.vectors
-      .filter(
+      .findLast(
         (vector) =>
           !vector.added &&
           vector.kind === 'rectangle' &&
           vector.fill !== 'transparent' &&
+          !vectorEdits[`${pageIndex}:${vector.id}`]?.deleted &&
           centerX >= vector.x &&
           centerX <= vector.x + vector.width &&
           centerY >= vector.top &&
           centerY <= vector.top + vector.height,
-      )
-      .sort((first, second) => first.width * first.height - second.width * second.height)[0]?.fill;
+      )?.fill;
   };
   const activeTypeface =
     activeAdded?.font || activeEdit?.font || (activeBlock ? editableBlockFont(activeBlock) : 'Helvetica');

@@ -1,8 +1,9 @@
 'use client';
 import type { EditorHistorySnapshot, VectorEdit } from '../types';
 
-import { useRef, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
+import { useEffect, useRef, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { blockKey } from '../lib/text';
+import { captureNativePdfImage, imageOverlapsEditedVectors } from '../lib/native-image';
 import { keepPopupToolActive } from '../lib/tool-preferences';
 import type { AddedImage, ImageBlock, SelectedElementRef, VectorBlock, VectorKind } from '../types';
 import type { EditorState } from './use-editor-state';
@@ -49,6 +50,9 @@ type Context = Pick<
   | 'panRef'
   | 'setIsPanning'
   | 'pdfBytes'
+  | 'pdfRef'
+  | 'imageCaptures'
+  | 'setImageCaptures'
   | 'setFitMode'
   | 'setZoom'
 > & {
@@ -119,11 +123,46 @@ export function useCanvasInteraction({
   panRef,
   setIsPanning,
   pdfBytes,
+  pdfRef,
+  imageCaptures,
+  setImageCaptures,
   setFitMode,
   setZoom,
 }: Context) {
   const zoomFrameRef = useRef<number | null>(null);
   const zoomInputRef = useRef({ deltaY: 0, clientX: 0, clientY: 0 });
+  const nativeImagesRef = useRef<{ pdf: unknown; captures: Record<string, string>; pending: Set<string> }>({
+    pdf: null,
+    captures: {},
+    pending: new Set(),
+  });
+
+  useEffect(() => {
+    const pdf = pdfRef.current;
+    const page = pages[currentPage];
+    if (!pdf || !page) return;
+    if (nativeImagesRef.current.pdf !== pdf)
+      nativeImagesRef.current = { pdf, captures: {}, pending: new Set() };
+    page.images.forEach((image) => {
+      if (!image.sourceName || !imageOverlapsEditedVectors(image, page, currentPage, vectorEdits))
+        return;
+      const key = `${currentPage}:${image.id}`;
+      const cached = nativeImagesRef.current.captures[key];
+      if (cached) {
+        if (imageCaptures[key] !== cached)
+          setImageCaptures((captures) => ({ ...captures, [key]: cached }));
+        return;
+      }
+      if (nativeImagesRef.current.pending.has(key)) return;
+      nativeImagesRef.current.pending.add(key);
+      void captureNativePdfImage(pdf, currentPage, image).then((capture) => {
+        nativeImagesRef.current.pending.delete(key);
+        if (!capture || nativeImagesRef.current.pdf !== pdf) return;
+        nativeImagesRef.current.captures[key] = capture;
+        setImageCaptures((captures) => ({ ...captures, [key]: capture }));
+      });
+    });
+  }, [currentPage, imageCaptures, pages, pdfRef, setImageCaptures, vectorEdits]);
 
   const startOcrRegionSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (tool !== 'ocr-region' || event.button !== 0 || ocrBusy) return;
@@ -366,10 +405,20 @@ export function useCanvasInteraction({
   const deleteVector = () => {
     if (!activeVectorKey) return;
     recordHistory();
-    setVectorEdits((items) => ({
-      ...items,
-      [activeVectorKey]: { ...items[activeVectorKey], deleted: !activeVectorEdit.deleted },
-    }));
+    const groupedIds =
+      activeVector?.kind === 'polygon' &&
+      selectedElements.some((item) => item.kind === 'vector' && `${item.page}:${item.id}` === activeVectorKey)
+        ? selectedElements
+            .filter((item) => item.kind === 'vector' && item.page === currentPage)
+            .map((item) => `${item.page}:${item.id}`)
+        : [activeVectorKey];
+    setVectorEdits((items) => {
+      const next = { ...items };
+      groupedIds.forEach((key) => {
+        next[key] = { ...next[key], deleted: !activeVectorEdit.deleted };
+      });
+      return next;
+    });
   };
   deleteVectorRef.current = deleteVector;
 
@@ -426,6 +475,8 @@ export function useCanvasInteraction({
           pages[currentPage].vectors.forEach((vector) => {
             const edit = vectorEdits[`${currentPage}:${vector.id}`];
             if (
+              (vector.width < pages[currentPage].width * 0.98 ||
+                vector.height < pages[currentPage].height * 0.98) &&
               !edit?.deleted &&
               !isFormOwnedVector(currentPage, vector) &&
               intersects(

@@ -10,7 +10,8 @@ import {
 import { DemoDocument } from './demo-document';
 import { FormBackdropLayer } from './form-backdrop-layer';
 import { TextBoxControls } from './text-box-controls';
-import { needsFormCleanup, needsTextCleanup } from '../lib/appearance';
+import { filledRectangleAt, needsFormCleanup, needsTextCleanup, vectorUnderlyingColor } from '../lib/appearance';
+import { imageOverlapsEditedVectors } from '../lib/native-image';
 import { browserFontFamily } from '../lib/fonts';
 import { formBackdropGeometry } from '../lib/pdf-geometry';
 import { ocrCoverRects } from '../lib/ocr-covers';
@@ -299,16 +300,52 @@ export function EditorCanvas({ editor }: Props) {
                 if (isFormOwnedVector(currentPage, vector)) return null;
                 const edit = vectorEdits[`${currentPage}:${vector.id}`] || {};
                 const changed = !vector.added && Object.keys(edit).some((property) => property !== 'deleted');
-                return !vector.added && (changed || edit.deleted) ? (
+                if (vector.added || (!changed && !edit.deleted)) return null;
+                const eraseFill = vectorUnderlyingColor(
+                  pages[currentPage].vectors, vector, vectorEdits, currentPage,
+                );
+                const eraseLeft = Math.max(0, vector.x - 1);
+                const eraseTop = Math.max(0, vector.top - 1);
+                const eraseRight = Math.min(pages[currentPage].width, vector.x + vector.width + 1);
+                const eraseBottom = Math.min(pages[currentPage].height, vector.top + vector.height + 1);
+                return vector.kind === 'polygon' && vector.svgPath ? (
+                  <path
+                    key={`erase-${vector.id}`}
+                    d={vector.svgPath}
+                    transform={`translate(${vector.x} ${vector.top})`}
+                    fill={eraseFill}
+                    stroke={eraseFill}
+                    strokeWidth={0.4}
+                  />
+                ) : eraseRight > eraseLeft && eraseBottom > eraseTop ? (
                   <rect
                     key={`erase-${vector.id}`}
-                    x={vector.x - 1}
-                    y={vector.top - 1}
-                    width={vector.width + 2}
-                    height={vector.height + 2}
-                    fill="#ffffff"
+                    x={eraseLeft}
+                    y={eraseTop}
+                    width={eraseRight - eraseLeft}
+                    height={eraseBottom - eraseTop}
+                    fill={eraseFill}
                   />
                 ) : null;
+              })}
+              {pages[currentPage].images.map((image) => {
+                const key = `${currentPage}:${image.id}`;
+                const capture = imageCaptures[key];
+                if (
+                  !capture || Object.keys(imageEdits[key] || {}).length ||
+                  !imageOverlapsEditedVectors(image, pages[currentPage], currentPage, vectorEdits)
+                ) return null;
+                return (
+                  <image
+                    key={`restore-${image.id}`}
+                    href={capture}
+                    x={image.x}
+                    y={image.top}
+                    width={image.width}
+                    height={image.height}
+                    pointerEvents="none"
+                  />
+                );
               })}
               {[...pages[currentPage].vectors, ...(canvasDraftVector ? [canvasDraftVector] : [])].map((vector) => {
                 const key = `${currentPage}:${vector.id}`;
@@ -326,12 +363,15 @@ export function EditorCanvas({ editor }: Props) {
                   canvasDraftVector?.id === vector.id ||
                   Object.keys(edit).some((property) => property !== 'deleted');
                 const selectedVector = selectedVectorId === vector.id;
+                const pageBackdrop =
+                  !vector.added && vector.width >= pages[currentPage].width * 0.98 &&
+                  vector.height >= pages[currentPage].height * 0.98;
                 const formOwnedVector = isFormOwnedVector(currentPage, vector);
                 const selectShape = (event: ReactMouseEvent<SVGElement>) => {
                   if (marqueeSuppressClickRef.current) return;
                   if (formOwnedVector || (!vector.added && !selectPdfShapes)) return;
                   if (!selectPdfShapes) event.stopPropagation();
-                  if (moveShapeContents && !event.shiftKey)
+                  if ((moveShapeContents || vector.kind === 'polygon') && !event.shiftKey)
                     setSelectedElements(relatedShapeElements(currentPage, [vector.id]));
                   else
                     updateElementSelection(
@@ -345,7 +385,7 @@ export function EditorCanvas({ editor }: Props) {
                   setSelectedImage(null);
                 };
                 const selectableShape = Boolean(
-                  !formOwnedVector && (vector.added || selectPdfShapes || selectedVector),
+                  !formOwnedVector && (vector.added || (selectPdfShapes && !pageBackdrop) || selectedVector),
                 );
                 const common = {
                   className: selectableShape ? 'editable-vector' : undefined,
@@ -354,7 +394,7 @@ export function EditorCanvas({ editor }: Props) {
                     pointerEvents: selectableShape ? ('all' as const) : ('none' as const),
                     cursor: selectableShape ? 'pointer' : 'default',
                   },
-                  opacity: changed && !formOwnedVector ? 1 : 0,
+                  opacity: changed && !formOwnedVector ? (edit.opacity ?? vector.opacity ?? 1) : 0,
                 };
                 const renderedPoints = (vector.points || []).map((point) => ({
                   x: x + ((point.x - vector.x) * width) / Math.max(1, vector.width),
@@ -364,7 +404,16 @@ export function EditorCanvas({ editor }: Props) {
                 const lineEnd = renderedPoints[renderedPoints.length - 1];
                 return (
                   <Fragment key={vector.id}>
-                    {vector.kind === 'ellipse' ? (
+                    {vector.kind === 'polygon' && vector.svgPath ? (
+                      <path
+                        {...common}
+                        d={vector.svgPath}
+                        transform={`translate(${x} ${top}) scale(${width / Math.max(0.5, vector.width)} ${height / Math.max(0.5, vector.height)})`}
+                        fill={fill}
+                        stroke={stroke}
+                        strokeWidth={strokeWidth}
+                      />
+                    ) : vector.kind === 'ellipse' ? (
                       <ellipse
                         {...common}
                         cx={x + width / 2}
@@ -413,7 +462,7 @@ export function EditorCanvas({ editor }: Props) {
                         y={top}
                         width={Math.max(width, 1)}
                         height={Math.max(height, 1)}
-                        className="vector-selection-object"
+                        className={`vector-selection-object ${pageBackdrop ? 'page-backdrop-selection' : ''}`}
                       >
                         <div className="vector-selection-box">
                           <button
@@ -459,7 +508,14 @@ export function EditorCanvas({ editor }: Props) {
                           top: image.top * zoom - 1,
                           width: image.width * zoom + 2,
                           height: image.height * zoom + 3,
-                          backgroundColor: edit?.eraseColor || '#ffffff',
+                          backgroundColor:
+                            filledRectangleAt(
+                              pages[currentPage].vectors,
+                              image.x + image.width / 2,
+                              image.top + image.height / 2,
+                              vectorEdits,
+                              currentPage,
+                            ) || edit?.eraseColor || '#ffffff',
                         }}
                       />
                     )}

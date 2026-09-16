@@ -70,6 +70,7 @@ export default function PdfEditor() {
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [motionEnabled, setMotionEnabled] = useState(true);
   const [updateDownloadDirectory, setUpdateDownloadDirectory] = useState<string | null>(null);
+  const [nativeUpdaterAvailable, setNativeUpdaterAvailable] = useState(false);
   const {
     uploadRef,
     documentTabs,
@@ -136,6 +137,9 @@ export default function PdfEditor() {
   useEffect(() => {
     const updater = window.paperlyUpdater;
     if (!updater) return;
+    // Electron exposes the updater through preload after the client mounts.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNativeUpdaterAvailable(true);
 
     void updater.getVersion().then(setCurrentVersion).catch(() => undefined);
     void updater.getDownloadDirectory().then(setUpdateDownloadDirectory).catch(() => undefined);
@@ -565,7 +569,7 @@ export default function PdfEditor() {
                   </small>
                 </span>
               </button>
-              {window.paperlyUpdater && (
+              {nativeUpdaterAvailable && (
                 <button
                   aria-label="Choose update download and installer temp folder"
                   disabled={

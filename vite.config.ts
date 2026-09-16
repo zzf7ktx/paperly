@@ -2,6 +2,7 @@ import { sites } from '@openai/sites-vite-plugin';
 import tailwindcss from '@tailwindcss/postcss';
 import vinext from 'vinext';
 import { defineConfig } from 'vite';
+import wasm from 'vite-plugin-wasm';
 import { existsSync, readFileSync } from 'node:fs';
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID = '00000000-0000-4000-8000-000000000000';
@@ -57,6 +58,7 @@ export default defineConfig(async () => {
       ...(isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : {}),
     },
     plugins: [
+      wasm(),
       vinext(),
       ...(existsSync(hostingConfigPath) ? [sites()] : []),
       cloudflare({

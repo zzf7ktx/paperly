@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 async function changeTheme(page: Page, current: 'system' | 'light' | 'dark') {
   await page.getByRole('button', { name: 'More application options' }).click();
@@ -180,6 +180,134 @@ test('edit, undo, redo, fill forms, switch documents, and export a readable PDF'
   await upload.setInputFiles(exportedPath);
   await expect(page.locator('.text-layer')).toContainText('Updated agreement');
   expect(errors).toEqual([]);
+});
+
+test('selective removal deletes original text while preserving neighboring PDF text', async ({ page }, testInfo) => {
+  const pdf = await PDFDocument.create();
+  const sheet = pdf.addPage([612, 792]);
+  sheet.drawText('Delete this line', { x: 60, y: 700, size: 18 });
+  sheet.drawText('Keep this line', { x: 60, y: 650, size: 18 });
+  const field = pdf.getForm().createTextField('Unchanged field');
+  field.setText('Still editable');
+  field.addToPage(sheet, { x: 60, y: 570, width: 200, height: 25 });
+  const removedField = pdf.getForm().createTextField('Removed field');
+  removedField.setText('Gone');
+  removedField.addToPage(sheet, { x: 60, y: 520, width: 200, height: 25 });
+  await page.goto('/');
+  await page.locator('input[type="file"][accept="application/pdf,.pdf"]').setInputFiles({
+    name: 'selective.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()),
+  });
+  await page.locator('.toolbar-popover > summary').filter({ hasText: 'View' }).click();
+  await page.getByRole('button').filter({ hasText: 'Remove original content on export' }).click();
+  await expect(page.getByRole('button').filter({ hasText: 'Remove original content on export' })).toContainText('On');
+  await page.reload();
+  await page.locator('.toolbar-popover > summary').filter({ hasText: 'View' }).click();
+  await expect(page.getByRole('button').filter({ hasText: 'Remove original content on export' })).toContainText('On');
+  await page.locator('input[type="file"][accept="application/pdf,.pdf"]').setInputFiles({
+    name: 'selective.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()),
+  });
+  const text = page.locator('.text-layer [contenteditable="true"]').filter({ hasText: 'Delete this line' });
+  await expect(text).toBeVisible();
+  await text.click();
+  await page.keyboard.press('Delete');
+  await page.locator('.text-layer [contenteditable="true"]').filter({ hasText: 'Keep this line' }).click();
+  await page.locator('.property-tabs').getByRole('button', { name: 'Layout', exact: true }).click();
+  await page.getByRole('spinbutton', { name: 'Existing text horizontal position' }).fill('220');
+  await page.getByRole('textbox', { name: 'Removed field', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove form field', exact: true }).click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export PDF', exact: true }).click();
+  const download = await downloadPromise;
+  const exportedPath = testInfo.outputPath('selective-deleted.pdf');
+  await download.saveAs(exportedPath);
+  const exported = await PDFDocument.load(await readFile(exportedPath));
+  expect(exported.getForm().getTextField('Unchanged field').getText()).toBe('Still editable');
+  expect(exported.getForm().getFieldMaybe('Removed field')).toBeUndefined();
+  await page.locator('input[type="file"][accept="application/pdf,.pdf"]').setInputFiles(exportedPath);
+  await expect(page.locator('.text-layer')).not.toContainText('Delete this line');
+  await expect(page.locator('.text-layer')).toContainText('Keep this line');
+  await expect(page.locator('.text-layer [contenteditable="true"]').filter({ hasText: 'Keep this line' })).toHaveCount(1);
+  await expect(page.getByRole('textbox', { name: 'Unchanged field', exact: true })).toHaveValue('Still editable');
+});
+
+test('selective removal deletes an original image without flattening page text', async ({ page }, testInfo) => {
+  const pdf = await PDFDocument.create();
+  const sheet = pdf.addPage([612, 792]);
+  sheet.drawText('Native text survives', { x: 60, y: 700, size: 18 });
+  const image = await pdf.embedPng(await readFile('public/og.png'));
+  sheet.drawImage(image, { x: 60, y: 520, width: 160, height: 90 });
+  await page.goto('/');
+  await page.locator('input[type="file"][accept="application/pdf,.pdf"]').setInputFiles({
+    name: 'image.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()),
+  });
+  await page.locator('.toolbar-popover > summary').filter({ hasText: 'View' }).click();
+  await page.getByRole('button').filter({ hasText: 'Remove original content on export' }).click();
+  await page.locator('.pdf-image-box.existing').click();
+  await page.getByRole('button', { name: 'Delete existing image', exact: true }).click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export PDF', exact: true }).click();
+  const download = await downloadPromise;
+  const exportedPath = testInfo.outputPath('image-selectively-deleted.pdf');
+  await download.saveAs(exportedPath);
+  await page.locator('input[type="file"][accept="application/pdf,.pdf"]').setInputFiles(exportedPath);
+  await expect(page.locator('.text-layer')).toContainText('Native text survives');
+  await expect(page.locator('.pdf-image-box.existing')).toHaveCount(0);
+});
+
+test('deleting a corner shape keeps its cleanup cover inside the page', async ({ page }) => {
+  const pdf = await PDFDocument.create();
+  const sheet = pdf.addPage([300, 200]);
+  sheet.drawRectangle({ x: 0, y: 165, width: 40, height: 35, color: rgb(0.8, 0.2, 0.2) });
+  sheet.drawRectangle({ x: 260, y: 0, width: 40, height: 35, color: rgb(0.2, 0.6, 0.3) });
+  await page.goto('/');
+  await page.locator('input[type="file"][accept="application/pdf,.pdf"]').setInputFiles({
+    name: 'corner.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()),
+  });
+  await page.locator('.draw-popover > summary').click();
+  await page.getByRole('button').filter({ hasText: 'Select PDF shapes' }).click();
+  await page.locator('.draw-popover > summary').click();
+  for (let index = 0; index < 2; index++) {
+    await page.locator('.vector-layer .editable-vector').first().click();
+    await page.keyboard.press('Delete');
+  }
+  const covers = page.locator('.vector-layer > rect');
+  await expect(covers).toHaveCount(2);
+  const bounds = await covers.evaluateAll((shapes: SVGRectElement[]) => shapes.map((shape) => ({
+    x: shape.x.baseVal.value,
+    y: shape.y.baseVal.value,
+    right: shape.x.baseVal.value + shape.width.baseVal.value,
+    bottom: shape.y.baseVal.value + shape.height.baseVal.value,
+  })));
+  for (const cover of bounds) {
+    expect(cover.x).toBeGreaterThanOrEqual(0);
+    expect(cover.y).toBeGreaterThanOrEqual(0);
+    expect(cover.right).toBeLessThanOrEqual(300);
+    expect(cover.bottom).toBeLessThanOrEqual(200);
+  }
+});
+
+test('a deleted shape loses its blue cover when the background moves or shrinks', async ({ page }) => {
+  const pdf = await PDFDocument.create();
+  const sheet = pdf.addPage([300, 200]);
+  sheet.drawRectangle({ x: 20, y: 50, width: 230, height: 110, color: rgb(0.1, 0.3, 0.8) });
+  sheet.drawRectangle({ x: 150, y: 80, width: 40, height: 30, color: rgb(0.8, 0.2, 0.2) });
+  await page.goto('/');
+  await page.locator('input[type="file"][accept="application/pdf,.pdf"]').setInputFiles({
+    name: 'blue-background.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()),
+  });
+  await page.locator('.draw-popover > summary').click();
+  await page.getByRole('button').filter({ hasText: 'Select PDF shapes' }).click();
+  await page.locator('.draw-popover > summary').click();
+  await page.locator('.vector-layer .editable-vector').nth(1).click();
+  await page.getByRole('button', { name: 'Delete shape', exact: true }).click();
+  const foregroundCover = page.locator('.vector-layer > rect').first();
+  await expect(foregroundCover).toHaveAttribute('fill', '#1a4ccc');
+  await page.locator('.vector-layer .editable-vector').click();
+  await page.getByRole('spinbutton', { name: 'Shape horizontal position' }).fill('260');
+  await expect(foregroundCover).toHaveAttribute('fill', '#ffffff');
+  await page.getByRole('spinbutton', { name: 'Shape horizontal position' }).fill('20');
+  await page.getByRole('spinbutton', { name: 'Shape width' }).fill('60');
+  await expect(foregroundCover).toHaveAttribute('fill', '#ffffff');
 });
 
 test('the themed color picker supports swatches, HEX, RGB, and keyboard controls', async ({
