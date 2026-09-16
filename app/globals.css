@@ -3889,15 +3889,6 @@ select:not([multiple]) {
   font-size: 8px;
   line-height: 1.4;
 }
-.ocr-language {
-  height: 30px;
-  border: 1px solid #d5ddd9;
-  border-radius: 5px;
-  background: #f7f9f8;
-  padding: 0 7px;
-  color: #53645f;
-  font-size: 8px;
-}
 .ocr-progress {
   height: 5px;
   overflow: hidden;
@@ -3998,30 +3989,8 @@ select:not([multiple]) {
 .ocr-popover label {
   margin: 1px 0 -2px;
 }
-.ocr-language-select {
-  width: 100%;
-  height: 32px;
-  flex: 0 0 auto;
-  border: 1px solid #d5ddd9;
-  border-radius: 6px;
-  background: #f7f9f8;
-}
-.ocr-language-select > summary {
-  height: 30px;
-  border: 0;
-  padding: 0 9px;
-  color: #53645f;
-  font-size: 8px;
-}
-.ocr-language-select[data-disabled] {
-  opacity: 1;
-  pointer-events: none;
-}
-.ocr-language-select[data-disabled] .field-type-chevron {
-  display: none;
-}
 .ocr-language-note {
-  margin-top: -6px;
+  margin-top: -4px;
   color: #7b8984;
   font-size: 7px;
   line-height: 1.3;
@@ -4534,7 +4503,11 @@ select:not([multiple]) {
 
 /* Unified editing toolbar controls */
 .formatbar {
-  height: 54px;
+  min-height: 54px;
+  height: auto;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-content: center;
   gap: 6px;
   padding: 9px 12px;
   background: #fbfbf9;
@@ -4603,6 +4576,7 @@ select:not([multiple]) {
   display: flex;
   align-items: stretch;
   gap: 3px;
+  flex: 0 0 auto;
 }
 .toolbar-group > button {
   height: 34px;
@@ -4646,6 +4620,12 @@ select:not([multiple]) {
   position: relative;
   height: 34px;
   flex: 0 0 auto;
+}
+.formatbar > .spacer {
+  display: none;
+}
+.formatbar > .options-popover {
+  margin-left: auto;
 }
 .toolbar-popover > summary {
   height: 34px;
@@ -4699,6 +4679,44 @@ select:not([multiple]) {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.draw-popover .toolbar-popover-panel,
+.ocr-popover .toolbar-popover-panel,
+.options-popover .toolbar-popover-panel,
+.view-popover .toolbar-popover-panel {
+  max-height: calc(100vh - 112px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #83aa9e #eef2f0;
+}
+.draw-popover .toolbar-popover-panel::-webkit-scrollbar,
+.ocr-popover .toolbar-popover-panel::-webkit-scrollbar,
+.options-popover .toolbar-popover-panel::-webkit-scrollbar,
+.view-popover .toolbar-popover-panel::-webkit-scrollbar {
+  width: 7px;
+}
+.draw-popover .toolbar-popover-panel::-webkit-scrollbar-button,
+.ocr-popover .toolbar-popover-panel::-webkit-scrollbar-button,
+.options-popover .toolbar-popover-panel::-webkit-scrollbar-button,
+.view-popover .toolbar-popover-panel::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.draw-popover .toolbar-popover-panel::-webkit-scrollbar-track,
+.ocr-popover .toolbar-popover-panel::-webkit-scrollbar-track,
+.options-popover .toolbar-popover-panel::-webkit-scrollbar-track,
+.view-popover .toolbar-popover-panel::-webkit-scrollbar-track {
+  background: #eef2f0;
+}
+.draw-popover .toolbar-popover-panel::-webkit-scrollbar-thumb,
+.ocr-popover .toolbar-popover-panel::-webkit-scrollbar-thumb,
+.options-popover .toolbar-popover-panel::-webkit-scrollbar-thumb,
+.view-popover .toolbar-popover-panel::-webkit-scrollbar-thumb {
+  border: 2px solid #eef2f0;
+  border-radius: 8px;
+  background: #83aa9e;
 }
 .toolbar-popover-panel.align-right {
   left: auto;
@@ -4843,26 +4861,45 @@ select:not([multiple]) {
     700 8px Arial,
     sans-serif;
 }
+.page-rail,
+.properties,
 .canvas-wrap {
   scrollbar-width: thin;
   scrollbar-color: #83aa9e #dfe4e1;
 }
+.page-rail::-webkit-scrollbar,
+.properties::-webkit-scrollbar,
 .canvas-wrap::-webkit-scrollbar {
   width: 9px;
   height: 9px;
 }
+.page-rail::-webkit-scrollbar-button,
+.properties::-webkit-scrollbar-button,
+.canvas-wrap::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.page-rail::-webkit-scrollbar-track,
+.properties::-webkit-scrollbar-track,
 .canvas-wrap::-webkit-scrollbar-track {
   background: #dfe4e1;
 }
+.page-rail::-webkit-scrollbar-thumb,
+.properties::-webkit-scrollbar-thumb,
 .canvas-wrap::-webkit-scrollbar-thumb {
   min-height: 36px;
   border: 2px solid #dfe4e1;
   border-radius: 8px;
   background: #83aa9e;
 }
+.page-rail::-webkit-scrollbar-thumb:hover,
+.properties::-webkit-scrollbar-thumb:hover,
 .canvas-wrap::-webkit-scrollbar-thumb:hover {
   background: #5e9282;
 }
+.page-rail::-webkit-scrollbar-corner,
+.properties::-webkit-scrollbar-corner,
 .canvas-wrap::-webkit-scrollbar-corner {
   background: #dfe4e1;
 }
@@ -5742,14 +5779,27 @@ select:not([multiple]) {
   border-color: #527f70;
   color: #bed0c9;
 }
-.dark-mode .canvas-wrap {
+.dark-mode :is(.page-rail, .properties, .canvas-wrap) {
   scrollbar-color: #557d70 #1c2421;
 }
-.dark-mode .canvas-wrap::-webkit-scrollbar-track,
-.dark-mode .canvas-wrap::-webkit-scrollbar-corner {
+.dark-mode :is(.page-rail, .properties, .canvas-wrap)::-webkit-scrollbar-track,
+.dark-mode :is(.page-rail, .properties, .canvas-wrap)::-webkit-scrollbar-corner {
   background: #1c2421;
 }
-.dark-mode .canvas-wrap::-webkit-scrollbar-thumb {
+.dark-mode :is(.page-rail, .properties, .canvas-wrap)::-webkit-scrollbar-thumb {
+  border-color: #1c2421;
+  background: #557d70;
+}
+.dark-mode :is(.page-rail, .properties, .canvas-wrap)::-webkit-scrollbar-thumb:hover {
+  background: #6a9687;
+}
+.dark-mode :is(.draw-popover, .ocr-popover, .options-popover, .view-popover) .toolbar-popover-panel {
+  scrollbar-color: #557d70 #1c2421;
+}
+.dark-mode :is(.draw-popover, .ocr-popover, .options-popover, .view-popover) .toolbar-popover-panel::-webkit-scrollbar-track {
+  background: #1c2421;
+}
+.dark-mode :is(.draw-popover, .ocr-popover, .options-popover, .view-popover) .toolbar-popover-panel::-webkit-scrollbar-thumb {
   border-color: #1c2421;
   background: #557d70;
 }
@@ -5933,13 +5983,6 @@ select:not([multiple]) {
 .dark-mode .ocr-confidence-control output {
   background: #294039;
   color: #bfe9dc;
-}
-.dark-mode .ocr-language-select {
-  border-color: #40504a;
-  background: #1d2522;
-}
-.dark-mode .ocr-language-select > summary {
-  color: #cbd7d2;
 }
 .dark-mode .ocr-language-note,
 .dark-mode .ocr-confidence-control > small,
