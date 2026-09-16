@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@expo-google-fonts/noto-sans": "0.4.2",
+    "@fabifont/open-redact-pdf": "^0.6.0",
     "@pdf-lib/fontkit": "^1.1.1",
     "@tesseract.js-data/eng": "^1.0.0",
     "@tesseract.js-data/vie": "1.0.0",
@@ -58,6 +59,7 @@
     "typescript": "5.9.3",
     "vinext": "1.0.0-beta.3",
     "vite": "8.0.13",
+    "vite-plugin-wasm": "^3.6.0",
     "wrangler": "4.92.0"
   },
   "type": "module",

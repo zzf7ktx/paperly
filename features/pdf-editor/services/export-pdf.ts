@@ -12,6 +12,7 @@ import { captureNativePdfImage, imageOverlapsEditedVectors } from '../lib/native
 import { wrapTextForWidth } from '../lib/text';
 import { ocrCoverRects } from '../lib/ocr-covers';
 import type { FormBlock, FormEdit, TextBlock } from '../types';
+import { removeOriginalContent as removeNativeContent } from './remove-original-content';
 
 type Context = Pick<
   EditorState,
@@ -36,6 +37,7 @@ type Context = Pick<
   | 'imageCaptures'
   | 'uploadedFonts'
   | 'blockVisuals'
+  | 'removeOriginalContent'
   | 'setLoading'
   | 'error'
   | 'setError'
@@ -69,6 +71,7 @@ export async function exportDocument(
     imageCaptures,
     uploadedFonts,
     blockVisuals,
+    removeOriginalContent,
     setLoading,
     error,
     setError,
@@ -207,7 +210,23 @@ export async function exportDocument(
         }
       }
     }
+    if (removeOriginalContent && !isXfaDocument)
+      sourceBytes = await removeNativeContent(sourceBytes, { pages, edits, formEdits, imageEdits, vectorEdits });
     const pdfDocument = await PDFDocument.load(sourceBytes);
+    if (removeOriginalContent && !isXfaDocument) {
+      const form = pdfDocument.getForm();
+      for (const [key, edit] of Object.entries(formEdits)) {
+        if (!edit.deleted) continue;
+        const separator = key.indexOf(':');
+        const pageIndex = Number(key.slice(0, separator));
+        const block = pages[pageIndex]?.forms.find((item) => item.id === key.slice(separator + 1));
+        const field = block ? form.getFieldMaybe(block.name) : undefined;
+        if (!field) continue;
+        if ((field as any).acroField.getWidgets().length !== 1)
+          throw new Error('This field has multiple widgets. Selective deletion of one widget is not supported yet.');
+        form.removeField(field);
+      }
+    }
     const embeddedFonts: Record<string, any> = {};
     const fontVariant = (base: string, bold: boolean, italic: boolean) => {
       const family = closestStandardFont(base);
@@ -949,7 +968,7 @@ export async function exportDocument(
   } catch (reason) {
     if (options?.bytesOnly) throw reason;
     console.error(reason);
-    setError('We could not export this PDF. Please try again.');
+    setError(removeOriginalContent && reason instanceof Error ? reason.message : 'We could not export this PDF. Please try again.');
   } finally {
     if (!options?.bytesOnly) setLoading(false);
   }

@@ -173,6 +173,7 @@ export function useEditorState() {
   const [snapMode, setSnapMode] = useState<'text' | 'box'>('text');
   const [snapAnchor, setSnapAnchor] = useState<'start' | 'center' | 'end'>('start');
   const [showDeletedLabels, setShowDeletedLabels] = useState(true);
+  const [removeOriginalContent, setRemoveOriginalContent] = useState(false);
   const [fontWarnings, setFontWarnings] = useState<FontWarning[]>([]);
   const [uploadedFonts, setUploadedFonts] = useState<UploadedFont[]>([]);
   const [snapGuides, setSnapGuides] = useState<SnapGuides>({});
@@ -373,6 +374,8 @@ export function useEditorState() {
     setSnapAnchor,
     showDeletedLabels,
     setShowDeletedLabels,
+    removeOriginalContent,
+    setRemoveOriginalContent,
     fontWarnings,
     setFontWarnings,
     uploadedFonts,

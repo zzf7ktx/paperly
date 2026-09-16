@@ -71,6 +71,8 @@ type Props = {
     | 'setSnapAnchor'
     | 'showDeletedLabels'
     | 'setShowDeletedLabels'
+    | 'removeOriginalContent'
+    | 'setRemoveOriginalContent'
     | 'setSnapGuides'
     | 'activeKey'
     | 'activeEdit'
@@ -154,6 +156,8 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
     setSnapAnchor,
     showDeletedLabels,
     setShowDeletedLabels,
+    removeOriginalContent,
+    setRemoveOriginalContent,
     setSnapGuides,
     activeKey,
     activeEdit,
@@ -682,6 +686,16 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
           </button>
           <small className="shortcut-hint">
             Hide deleted regions completely so they cannot block selecting content underneath.
+          </small>
+          <button
+            className={`menu-toggle ${removeOriginalContent ? 'active' : ''}`}
+            onClick={() => setRemoveOriginalContent((enabled) => !enabled)}
+          >
+            <span>Remove original content on export</span>
+            <b>{removeOriginalContent ? 'On' : 'Off'}</b>
+          </button>
+          <small className="shortcut-hint">
+            Remove selected original content while keeping unaffected PDF text interactive.
           </small>
           {documentTabs.length > 0 && (
             <button

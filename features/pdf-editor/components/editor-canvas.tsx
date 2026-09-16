@@ -304,6 +304,10 @@ export function EditorCanvas({ editor }: Props) {
                 const eraseFill = vectorUnderlyingColor(
                   pages[currentPage].vectors, vector, vectorEdits, currentPage,
                 );
+                const eraseLeft = Math.max(0, vector.x - 1);
+                const eraseTop = Math.max(0, vector.top - 1);
+                const eraseRight = Math.min(pages[currentPage].width, vector.x + vector.width + 1);
+                const eraseBottom = Math.min(pages[currentPage].height, vector.top + vector.height + 1);
                 return vector.kind === 'polygon' && vector.svgPath ? (
                   <path
                     key={`erase-${vector.id}`}
@@ -313,16 +317,16 @@ export function EditorCanvas({ editor }: Props) {
                     stroke={eraseFill}
                     strokeWidth={0.4}
                   />
-                ) : (
+                ) : eraseRight > eraseLeft && eraseBottom > eraseTop ? (
                   <rect
                     key={`erase-${vector.id}`}
-                    x={vector.x - 1}
-                    y={vector.top - 1}
-                    width={vector.width + 2}
-                    height={vector.height + 2}
+                    x={eraseLeft}
+                    y={eraseTop}
+                    width={eraseRight - eraseLeft}
+                    height={eraseBottom - eraseTop}
                     fill={eraseFill}
                   />
-                );
+                ) : null;
               })}
               {pages[currentPage].images.map((image) => {
                 const key = `${currentPage}:${image.id}`;

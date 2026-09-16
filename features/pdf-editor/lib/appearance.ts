@@ -1,5 +1,9 @@
 import type { Edit, FormBlock, FormEdit, ImageBlock, TextBlock, VectorBlock, VectorEdit } from '../types';
 
+function originalVectorIsCleared(edit?: VectorEdit) {
+  return Boolean(edit?.deleted || (edit && Object.keys(edit).some((property) => property !== 'deleted')));
+}
+
 export function vectorUnderlyingColor(
   vectors: VectorBlock[], target: VectorBlock,
   vectorEdits?: Record<string, VectorEdit>, pageIndex?: number,
@@ -16,7 +20,7 @@ export function vectorUnderlyingColor(
       !vector.added &&
       vector.kind === 'rectangle' &&
       vector.fill !== 'transparent' &&
-      !(pageIndex !== undefined && vectorEdits?.[`${pageIndex}:${vector.id}`]?.deleted) &&
+      !(pageIndex !== undefined && originalVectorIsCleared(vectorEdits?.[`${pageIndex}:${vector.id}`])) &&
       vector.width * vector.height > area &&
       centerX >= vector.x &&
       centerX <= vector.x + vector.width &&
@@ -35,7 +39,7 @@ export function filledRectangleAt(
     !vector.added &&
     vector.kind === 'rectangle' &&
     vector.fill !== 'transparent' &&
-    !(pageIndex !== undefined && vectorEdits?.[`${pageIndex}:${vector.id}`]?.deleted) &&
+    !(pageIndex !== undefined && originalVectorIsCleared(vectorEdits?.[`${pageIndex}:${vector.id}`])) &&
     x >= vector.x && x <= vector.x + vector.width &&
     top >= vector.top && top <= vector.top + vector.height,
   )?.fill;
