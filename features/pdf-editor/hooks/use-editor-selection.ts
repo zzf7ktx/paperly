@@ -229,19 +229,27 @@ export function useEditorSelection({
     const selectedIds = new Set(seedIds);
     const candidates = page.vectors
       .map(geometry)
-      .filter((entry) =>
-        !entry.deleted && !isFormOwnedVector(pageIndex, entry.vector) &&
-        (selectedIds.has(entry.vector.id) ||
-          entry.width < page.width * 0.98 || entry.height < page.height * 0.98),
+      .filter(
+        (entry) =>
+          !entry.deleted &&
+          !isFormOwnedVector(pageIndex, entry.vector) &&
+          (selectedIds.has(entry.vector.id) ||
+            entry.width < page.width * 0.98 ||
+            entry.height < page.height * 0.98),
       );
     const touches = (first: ReturnType<typeof geometry>, second: ReturnType<typeof geometry>) => {
       const gap = 2.5;
-      return (
-        first.x <= second.x + second.width + gap &&
-        first.x + first.width + gap >= second.x &&
-        first.top <= second.top + second.height + gap &&
-        first.top + first.height + gap >= second.top
-      );
+      const horizontalOverlap =
+        first.x <= second.x + second.width + gap && first.x + first.width + gap >= second.x;
+      const verticalOverlap =
+        first.top <= second.top + second.height + gap && first.top + first.height + gap >= second.top;
+      const verticalEdgesTouch =
+        Math.abs(first.x - (second.x + second.width)) <= gap ||
+        Math.abs(first.x + first.width - second.x) <= gap;
+      const horizontalEdgesTouch =
+        Math.abs(first.top - (second.top + second.height)) <= gap ||
+        Math.abs(first.top + first.height - second.top) <= gap;
+      return (verticalOverlap && verticalEdgesTouch) || (horizontalOverlap && horizontalEdgesTouch);
     };
     let expanded = true;
     while (expanded) {
@@ -288,18 +296,17 @@ export function useEditorSelection({
   const vectorBackgroundForText = (pageIndex: number, block: TextBlock) => {
     const centerX = block.x + block.width / 2;
     const centerY = block.top + block.height / 2;
-    return pages[pageIndex]?.vectors
-      .findLast(
-        (vector) =>
-          !vector.added &&
-          vector.kind === 'rectangle' &&
-          vector.fill !== 'transparent' &&
-          !vectorEdits[`${pageIndex}:${vector.id}`]?.deleted &&
-          centerX >= vector.x &&
-          centerX <= vector.x + vector.width &&
-          centerY >= vector.top &&
-          centerY <= vector.top + vector.height,
-      )?.fill;
+    return pages[pageIndex]?.vectors.findLast(
+      (vector) =>
+        !vector.added &&
+        vector.kind === 'rectangle' &&
+        vector.fill !== 'transparent' &&
+        !vectorEdits[`${pageIndex}:${vector.id}`]?.deleted &&
+        centerX >= vector.x &&
+        centerX <= vector.x + vector.width &&
+        centerY >= vector.top &&
+        centerY <= vector.top + vector.height,
+    )?.fill;
   };
   const activeTypeface =
     activeAdded?.font || activeEdit?.font || (activeBlock ? editableBlockFont(activeBlock) : 'Helvetica');

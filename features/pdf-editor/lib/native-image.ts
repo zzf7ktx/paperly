@@ -1,4 +1,39 @@
-import type { ImageBlock, PageInfo, VectorEdit } from '../types';
+import type { ImageBlock, ImageEdit, PageInfo, VectorEdit } from '../types';
+
+export function areaOverlapsDeletedImage(
+  area: { x: number; top: number; width: number; height: number },
+  page: PageInfo,
+  pageIndex: number,
+  imageEdits: Record<string, ImageEdit>,
+) {
+  return page.images.some((image) => {
+    if (!imageEdits[`${pageIndex}:${image.id}`]?.deleted) return false;
+    return (
+      image.x < area.x + area.width &&
+      image.x + image.width > area.x &&
+      image.top < area.top + area.height &&
+      image.top + image.height > area.top
+    );
+  });
+}
+
+export function imageOverlapsEditedImages(
+  image: ImageBlock,
+  page: PageInfo,
+  pageIndex: number,
+  imageEdits: Record<string, ImageEdit>,
+) {
+  return page.images.some((other) => {
+    if (other.id === image.id || !Object.keys(imageEdits[`${pageIndex}:${other.id}`] || {}).length)
+      return false;
+    return (
+      other.x < image.x + image.width &&
+      other.x + other.width > image.x &&
+      other.top < image.top + image.height &&
+      other.top + other.height > image.top
+    );
+  });
+}
 
 export function imageOverlapsEditedVectors(
   image: ImageBlock,
@@ -29,8 +64,7 @@ export async function captureNativePdfImage(pdf: any, pageIndex: number, image: 
     canvas.height = source.height;
     const context = canvas.getContext('2d');
     if (!context) return undefined;
-    if (source.bitmap)
-      context.drawImage(source.bitmap, 0, 0);
+    if (source.bitmap) context.drawImage(source.bitmap, 0, 0);
     else if (source.data?.length === source.width * source.height * 4)
       context.putImageData(
         new ImageData(new Uint8ClampedArray(source.data), source.width, source.height),

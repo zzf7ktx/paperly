@@ -23,13 +23,18 @@ export function TextBoxControls({
   onMove: (event: ReactPointerEvent) => void;
   onResize: (event: ReactPointerEvent) => void;
 }) {
-  const moveStyle = mode === 'page' ? { left: x * zoom - 22, top: top * zoom - 1 } : undefined;
+  const moveStyle =
+    mode === 'page'
+      ? x * zoom < 22
+        ? { left: x * zoom + 2, top: top * zoom + 2, borderRadius: 4, opacity: 0.88 }
+        : { left: x * zoom - 22, top: top * zoom - 1 }
+      : undefined;
   const resizeStyle =
     mode === 'page' ? { left: (x + width) * zoom - 6, top: (top + height) * zoom - 6 } : undefined;
   return (
     <>
       <button
-        className={`text-move-handle ${mode}`}
+        className={`text-move-handle ${mode} ${x * zoom < 22 ? 'edge-left' : ''}`}
         aria-label="Move text box"
         title="Drag to move text box"
         onPointerDown={onMove}

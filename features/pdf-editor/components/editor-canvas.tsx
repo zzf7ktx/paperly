@@ -1,17 +1,20 @@
 'use client';
 
-import {
-  Fragment,
-  type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
-  useEffect,
-  useState,
-} from 'react';
+import { Fragment, type CSSProperties, type MouseEvent as ReactMouseEvent, useEffect, useState } from 'react';
 import { DemoDocument } from './demo-document';
 import { FormBackdropLayer } from './form-backdrop-layer';
 import { TextBoxControls } from './text-box-controls';
-import { filledRectangleAt, needsFormCleanup, needsTextCleanup, vectorUnderlyingColor } from '../lib/appearance';
-import { imageOverlapsEditedVectors } from '../lib/native-image';
+import {
+  filledRectangleAt,
+  needsFormCleanup,
+  needsTextCleanup,
+  vectorUnderlyingColor,
+} from '../lib/appearance';
+import {
+  areaOverlapsDeletedImage,
+  imageOverlapsEditedImages,
+  imageOverlapsEditedVectors,
+} from '../lib/native-image';
 import { browserFontFamily } from '../lib/fonts';
 import { formBackdropGeometry } from '../lib/pdf-geometry';
 import { ocrCoverRects } from '../lib/ocr-covers';
@@ -231,6 +234,67 @@ export function EditorCanvas({ editor }: Props) {
     window.addEventListener('paperly-draft-vector', updateDraft);
     return () => window.removeEventListener('paperly-draft-vector', updateDraft);
   }, []);
+  const selectGraphicAtPointer = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (tool !== 'select' || panEnabled || marqueeSuppressClickRef.current) return;
+    const target = event.target as Element;
+    if (target.closest('button,.pdf-form-control,.xfaLayer,.xfa-edit-layer')) return;
+    const candidates = document
+      .elementsFromPoint(event.clientX, event.clientY)
+      .map((element) => element.closest<HTMLElement>('[data-graphic-kind][data-graphic-id]'))
+      .filter(
+        (element, index, elements): element is HTMLElement =>
+          Boolean(element) && elements.indexOf(element) === index,
+      );
+    if (!candidates.length || target.closest('[contenteditable="true"]')) return;
+    let chosen = candidates.reduce((smallest, candidate) =>
+      Number(candidate.dataset.graphicArea) < Number(smallest.dataset.graphicArea) ? candidate : smallest,
+    );
+    if (chosen.dataset.graphicKind === 'image' && !chosen.dataset.graphicId?.startsWith('ocr-image-')) {
+      const addedVectors = [
+        ...event.currentTarget.querySelectorAll<HTMLElement>('[data-graphic-added="true"]'),
+      ].filter((element) => {
+        const bounds = element.getBoundingClientRect();
+        return (
+          event.clientX >= bounds.left &&
+          event.clientX <= bounds.right &&
+          event.clientY >= bounds.top &&
+          event.clientY <= bounds.bottom
+        );
+      });
+      if (addedVectors.length)
+        chosen = addedVectors.reduce((smallest, candidate) =>
+          Number(candidate.dataset.graphicArea) < Number(smallest.dataset.graphicArea) ? candidate : smallest,
+        );
+    }
+    const kind = chosen.dataset.graphicKind;
+    const id = chosen.dataset.graphicId!;
+    event.preventDefault();
+    event.stopPropagation();
+    if (kind === 'vector') {
+      const vector = pages[currentPage].vectors.find((entry) => entry.id === id);
+      if (!vector) return;
+      if (moveShapeContents && !event.shiftKey) setSelectedElements(relatedShapeElements(currentPage, [id]));
+      else updateElementSelection({ page: currentPage, kind: 'vector', id }, event.shiftKey);
+      setSelectedVectorId(id);
+      setSelected(null);
+      setSelectedForm(null);
+      setSelectedAddedId(null);
+      setSelectedImage(null);
+      return;
+    }
+    if (kind === 'image') {
+      const image = pages[currentPage].images.find((entry) => entry.id === id);
+      if (image) selectExistingImage(image, event.shiftKey);
+      return;
+    }
+    const image = addedImages.find((entry) => entry.page === currentPage && entry.id === id);
+    if (!image) return;
+    updateElementSelection({ page: currentPage, kind: 'added-image', id }, event.shiftKey);
+    setSelectedImage({ kind: 'added', id });
+    setSelected(null);
+    setSelectedAddedId(null);
+    setSelectedForm(null);
+  };
   return (
     <div
       ref={canvasWrapRef}
@@ -254,6 +318,7 @@ export function EditorCanvas({ editor }: Props) {
         pages[currentPage] && (
           <div
             className={`live-page ${tool === 'add-text' ? 'placing-text' : ''} ${tool === 'add-xfa' ? 'placing-xfa' : ''} ${tool === 'add-form' ? 'placing-form' : ''} ${tool === 'ocr-region' ? 'placing-ocr' : ''} ${tool.startsWith('draw-') ? 'placing-vector' : ''}`}
+            onClickCapture={selectGraphicAtPointer}
             onPointerDown={(event) => {
               startMarqueeSelection(event);
               startOcrRegionSelection(event);
@@ -292,7 +357,7 @@ export function EditorCanvas({ editor }: Props) {
               })}
             </div>
             <svg
-              className="vector-layer"
+              className={`vector-layer ${selectedVectorId ? 'has-selection' : ''} ${pages[currentPage].images.some((image) => imageEdits[`${currentPage}:${image.id}`]?.deleted) ? 'above-image-cleanup' : ''}`}
               viewBox={`0 0 ${pages[currentPage].width} ${pages[currentPage].height}`}
               aria-label="Editable vector shapes"
             >
@@ -302,7 +367,10 @@ export function EditorCanvas({ editor }: Props) {
                 const changed = !vector.added && Object.keys(edit).some((property) => property !== 'deleted');
                 if (vector.added || (!changed && !edit.deleted)) return null;
                 const eraseFill = vectorUnderlyingColor(
-                  pages[currentPage].vectors, vector, vectorEdits, currentPage,
+                  pages[currentPage].vectors,
+                  vector,
+                  vectorEdits,
+                  currentPage,
                 );
                 const eraseLeft = Math.max(0, vector.x - 1);
                 const eraseTop = Math.max(0, vector.top - 1);
@@ -332,9 +400,11 @@ export function EditorCanvas({ editor }: Props) {
                 const key = `${currentPage}:${image.id}`;
                 const capture = imageCaptures[key];
                 if (
-                  !capture || Object.keys(imageEdits[key] || {}).length ||
+                  !capture ||
+                  Object.keys(imageEdits[key] || {}).length ||
                   !imageOverlapsEditedVectors(image, pages[currentPage], currentPage, vectorEdits)
-                ) return null;
+                )
+                  return null;
                 return (
                   <image
                     key={`restore-${image.id}`}
@@ -347,140 +417,148 @@ export function EditorCanvas({ editor }: Props) {
                   />
                 );
               })}
-              {[...pages[currentPage].vectors, ...(canvasDraftVector ? [canvasDraftVector] : [])].map((vector) => {
-                const key = `${currentPage}:${vector.id}`;
-                const edit = vectorEdits[key] || {};
-                if (edit.deleted) return null;
-                const x = edit.x ?? vector.x;
-                const top = edit.top ?? vector.top;
-                const width = edit.width ?? vector.width;
-                const height = edit.height ?? vector.height;
-                const fill = edit.fill ?? vector.fill;
-                const stroke = edit.stroke ?? vector.stroke;
-                const strokeWidth = edit.strokeWidth ?? vector.strokeWidth;
-                const changed =
-                  vector.added ||
-                  canvasDraftVector?.id === vector.id ||
-                  Object.keys(edit).some((property) => property !== 'deleted');
-                const selectedVector = selectedVectorId === vector.id;
-                const pageBackdrop =
-                  !vector.added && vector.width >= pages[currentPage].width * 0.98 &&
-                  vector.height >= pages[currentPage].height * 0.98;
-                const formOwnedVector = isFormOwnedVector(currentPage, vector);
-                const selectShape = (event: ReactMouseEvent<SVGElement>) => {
-                  if (marqueeSuppressClickRef.current) return;
-                  if (formOwnedVector || (!vector.added && !selectPdfShapes)) return;
-                  if (!selectPdfShapes) event.stopPropagation();
-                  if ((moveShapeContents || vector.kind === 'polygon') && !event.shiftKey)
-                    setSelectedElements(relatedShapeElements(currentPage, [vector.id]));
-                  else
-                    updateElementSelection(
-                      { page: currentPage, kind: 'vector', id: vector.id },
-                      event.shiftKey,
-                    );
-                  setSelectedVectorId(vector.id);
-                  setSelected(null);
-                  setSelectedForm(null);
-                  setSelectedAddedId(null);
-                  setSelectedImage(null);
-                };
-                const selectableShape = Boolean(
-                  !formOwnedVector && (vector.added || (selectPdfShapes && !pageBackdrop) || selectedVector),
-                );
-                const common = {
-                  className: selectableShape ? 'editable-vector' : undefined,
-                  onClick: selectShape,
-                  style: {
-                    pointerEvents: selectableShape ? ('all' as const) : ('none' as const),
-                    cursor: selectableShape ? 'pointer' : 'default',
-                  },
-                  opacity: changed && !formOwnedVector ? (edit.opacity ?? vector.opacity ?? 1) : 0,
-                };
-                const renderedPoints = (vector.points || []).map((point) => ({
-                  x: x + ((point.x - vector.x) * width) / Math.max(1, vector.width),
-                  top: top + ((point.top - vector.top) * height) / Math.max(1, vector.height),
-                }));
-                const lineStart = renderedPoints[0];
-                const lineEnd = renderedPoints[renderedPoints.length - 1];
-                return (
-                  <Fragment key={vector.id}>
-                    {vector.kind === 'polygon' && vector.svgPath ? (
-                      <path
-                        {...common}
-                        d={vector.svgPath}
-                        transform={`translate(${x} ${top}) scale(${width / Math.max(0.5, vector.width)} ${height / Math.max(0.5, vector.height)})`}
-                        fill={fill}
-                        stroke={stroke}
-                        strokeWidth={strokeWidth}
-                      />
-                    ) : vector.kind === 'ellipse' ? (
-                      <ellipse
-                        {...common}
-                        cx={x + width / 2}
-                        cy={top + height / 2}
-                        rx={width / 2}
-                        ry={height / 2}
-                        fill={fill}
-                        stroke={stroke}
-                        strokeWidth={strokeWidth}
-                      />
-                    ) : vector.kind === 'line' ? (
-                      <line
-                        {...common}
-                        x1={lineStart?.x ?? x}
-                        y1={lineStart?.top ?? top}
-                        x2={lineEnd?.x ?? x + width}
-                        y2={lineEnd?.top ?? top + height}
-                        stroke={stroke}
-                        strokeWidth={Math.max(strokeWidth, changed ? strokeWidth : 8)}
-                      />
-                    ) : vector.kind === 'brush' ? (
-                      <polyline
-                        {...common}
-                        points={renderedPoints.map((point) => `${point.x},${point.top}`).join(' ')}
-                        fill="none"
-                        stroke={stroke}
-                        strokeWidth={strokeWidth}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    ) : (
-                      <rect
-                        {...common}
-                        x={x}
-                        y={top}
-                        width={width}
-                        height={height}
-                        fill={fill}
-                        stroke={stroke}
-                        strokeWidth={strokeWidth}
-                      />
-                    )}
-                    {selectedVector && !formOwnedVector && (
-                      <foreignObject
-                        x={x}
-                        y={top}
-                        width={Math.max(width, 1)}
-                        height={Math.max(height, 1)}
-                        className={`vector-selection-object ${pageBackdrop ? 'page-backdrop-selection' : ''}`}
-                      >
-                        <div className="vector-selection-box">
-                          <button
-                            className="vector-drag-handle"
-                            onPointerDown={(event) => startVectorDrag(event, vector)}
-                          >
-                            ⠿
-                          </button>
-                          <button
-                            className="vector-resize-handle"
-                            onPointerDown={(event) => startVectorResize(event, vector)}
-                          />
-                        </div>
-                      </foreignObject>
-                    )}
-                  </Fragment>
-                );
-              })}
+              {[...pages[currentPage].vectors, ...(canvasDraftVector ? [canvasDraftVector] : [])].map(
+                (vector) => {
+                  const key = `${currentPage}:${vector.id}`;
+                  const edit = vectorEdits[key] || {};
+                  if (edit.deleted) return null;
+                  const x = edit.x ?? vector.x;
+                  const top = edit.top ?? vector.top;
+                  const width = edit.width ?? vector.width;
+                  const height = edit.height ?? vector.height;
+                  const fill = edit.fill ?? vector.fill;
+                  const stroke = edit.stroke ?? vector.stroke;
+                  const strokeWidth = edit.strokeWidth ?? vector.strokeWidth;
+                  const changed =
+                    vector.added ||
+                    canvasDraftVector?.id === vector.id ||
+                    Object.keys(edit).some((property) => property !== 'deleted');
+                  const selectedVector = selectedVectorId === vector.id;
+                  const pageBackdrop =
+                    !vector.added &&
+                    vector.width >= pages[currentPage].width * 0.98 &&
+                    vector.height >= pages[currentPage].height * 0.98;
+                  const formOwnedVector = isFormOwnedVector(currentPage, vector);
+                  const selectShape = (event: ReactMouseEvent<SVGElement>) => {
+                    if (marqueeSuppressClickRef.current) return;
+                    if (formOwnedVector || (!vector.added && !selectPdfShapes)) return;
+                    if (!selectPdfShapes) event.stopPropagation();
+                    if (moveShapeContents && !event.shiftKey)
+                      setSelectedElements(relatedShapeElements(currentPage, [vector.id]));
+                    else
+                      updateElementSelection(
+                        { page: currentPage, kind: 'vector', id: vector.id },
+                        event.shiftKey,
+                      );
+                    setSelectedVectorId(vector.id);
+                    setSelected(null);
+                    setSelectedForm(null);
+                    setSelectedAddedId(null);
+                    setSelectedImage(null);
+                  };
+                  const selectableShape = Boolean(
+                    !formOwnedVector &&
+                    (vector.added || (selectPdfShapes && !pageBackdrop) || selectedVector),
+                  );
+                  const common = {
+                    className: selectableShape ? 'editable-vector' : undefined,
+                    'data-graphic-kind': selectableShape ? 'vector' : undefined,
+                    'data-graphic-id': selectableShape ? vector.id : undefined,
+                    'data-graphic-area': selectableShape ? Math.max(width * height, 1) : undefined,
+                    'data-graphic-added': selectableShape && vector.added ? 'true' : undefined,
+                    onClick: selectShape,
+                    style: {
+                      pointerEvents: selectableShape ? ('all' as const) : ('none' as const),
+                      cursor: selectableShape ? 'pointer' : 'default',
+                    },
+                    opacity: changed && !formOwnedVector ? (edit.opacity ?? vector.opacity ?? 1) : 0,
+                  };
+                  const renderedPoints = (vector.points || []).map((point) => ({
+                    x: x + ((point.x - vector.x) * width) / Math.max(1, vector.width),
+                    top: top + ((point.top - vector.top) * height) / Math.max(1, vector.height),
+                  }));
+                  const lineStart = renderedPoints[0];
+                  const lineEnd = renderedPoints[renderedPoints.length - 1];
+                  return (
+                    <Fragment key={vector.id}>
+                      {vector.kind === 'polygon' && vector.svgPath ? (
+                        <path
+                          {...common}
+                          d={vector.svgPath}
+                          transform={`translate(${x} ${top}) scale(${width / Math.max(0.5, vector.width)} ${height / Math.max(0.5, vector.height)})`}
+                          fill={fill}
+                          stroke={stroke}
+                          strokeWidth={strokeWidth}
+                        />
+                      ) : vector.kind === 'ellipse' ? (
+                        <ellipse
+                          {...common}
+                          cx={x + width / 2}
+                          cy={top + height / 2}
+                          rx={width / 2}
+                          ry={height / 2}
+                          fill={fill}
+                          stroke={stroke}
+                          strokeWidth={strokeWidth}
+                        />
+                      ) : vector.kind === 'line' ? (
+                        <line
+                          {...common}
+                          x1={lineStart?.x ?? x}
+                          y1={lineStart?.top ?? top}
+                          x2={lineEnd?.x ?? x + width}
+                          y2={lineEnd?.top ?? top + height}
+                          stroke={stroke}
+                          strokeWidth={Math.max(strokeWidth, changed ? strokeWidth : 8)}
+                        />
+                      ) : vector.kind === 'brush' ? (
+                        <polyline
+                          {...common}
+                          points={renderedPoints.map((point) => `${point.x},${point.top}`).join(' ')}
+                          fill="none"
+                          stroke={stroke}
+                          strokeWidth={strokeWidth}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      ) : (
+                        <rect
+                          {...common}
+                          x={x}
+                          y={top}
+                          width={width}
+                          height={height}
+                          fill={fill}
+                          stroke={stroke}
+                          strokeWidth={strokeWidth}
+                        />
+                      )}
+                      {selectedVector && !formOwnedVector && (
+                        <foreignObject
+                          x={x}
+                          y={top}
+                          width={Math.max(width, 1)}
+                          height={Math.max(height, 1)}
+                          className={`vector-selection-object ${pageBackdrop ? 'page-backdrop-selection' : ''} ${x * zoom < 22 ? 'edge-left' : ''}`}
+                        >
+                          <div className="vector-selection-box">
+                            <button
+                              className="vector-drag-handle"
+                              onPointerDown={(event) => startVectorDrag(event, vector)}
+                            >
+                              ⠿
+                            </button>
+                            <button
+                              className="vector-resize-handle"
+                              onPointerDown={(event) => startVectorResize(event, vector)}
+                            />
+                          </div>
+                        </foreignObject>
+                      )}
+                    </Fragment>
+                  );
+                },
+              )}
             </svg>
             {isXfaDocument && (
               <div ref={xfaLayerRef} aria-label={`Interactive XFA form on page ${currentPage + 1}`} />
@@ -515,12 +593,20 @@ export function EditorCanvas({ editor }: Props) {
                               image.top + image.height / 2,
                               vectorEdits,
                               currentPage,
-                            ) || edit?.eraseColor || '#ffffff',
+                            ) ||
+                            edit?.eraseColor ||
+                            '#ffffff',
                         }}
                       />
                     )}
                     <div
-                      className={`pdf-image-box existing ${isSelected ? 'is-selected' : ''} ${edit?.deleted ? 'is-deleted' : ''}`}
+                      className={`pdf-image-box existing ${isSelected ? 'is-selected' : ''} ${left < 22 ? 'edge-left' : ''} ${edit?.deleted ? 'is-deleted' : ''}`}
+                      data-graphic-kind="image"
+                      data-graphic-id={image.id}
+                      data-graphic-area={Math.max(
+                        (edit?.width ?? image.width) * (edit?.height ?? image.height),
+                        1,
+                      )}
                       onClick={(event) => {
                         event.stopPropagation();
                         if (!marqueeSuppressClickRef.current) selectExistingImage(image, event.shiftKey);
@@ -532,9 +618,17 @@ export function EditorCanvas({ editor }: Props) {
                         height: (edit?.height ?? image.height) * zoom,
                       }}
                     >
-                      {changed && !edit?.deleted && imageCaptures[key] && (
-                        <img src={imageCaptures[key]} alt="Edited PDF image" draggable={false} />
-                      )}
+                      {!edit?.deleted &&
+                        (image.dataUrl || imageCaptures[key]) &&
+                        (changed ||
+                          image.id.startsWith('ocr-image-') ||
+                          imageOverlapsEditedImages(image, pages[currentPage], currentPage, imageEdits)) && (
+                          <img
+                            src={image.dataUrl || imageCaptures[key]}
+                            alt="Edited PDF image"
+                            draggable={false}
+                          />
+                        )}
                       {edit?.deleted && <span className="image-deleted-label">Deleted image</span>}
                       {isPrimary && !edit?.deleted && (
                         <>
@@ -564,7 +658,10 @@ export function EditorCanvas({ editor }: Props) {
                   return (
                     <div
                       key={image.id}
-                      className={`pdf-image-box added ${isSelected ? 'is-selected' : ''}`}
+                      className={`pdf-image-box added ${isSelected ? 'is-selected' : ''} ${image.x * zoom < 22 ? 'edge-left' : ''}`}
+                      data-graphic-kind="added-image"
+                      data-graphic-id={image.id}
+                      data-graphic-area={Math.max(image.width * image.height, 1)}
                       onClick={(event) => {
                         event.stopPropagation();
                         if (marqueeSuppressClickRef.current) return;
@@ -793,6 +890,19 @@ export function EditorCanvas({ editor }: Props) {
                 .map((box) => {
                   const isPrimary = selectedAddedId === box.id;
                   const isSelected = isPrimary || isElementSelected('added-text', box.id);
+                  const sourceScanDeleted =
+                    box.ocrSource &&
+                    areaOverlapsDeletedImage(
+                      {
+                        x: box.ocrOriginalX ?? box.x,
+                        top: box.ocrOriginalTop ?? box.top,
+                        width: box.ocrOriginalWidth ?? box.width,
+                        height: box.ocrOriginalHeight ?? box.height,
+                      },
+                      pages[currentPage],
+                      currentPage,
+                      imageEdits,
+                    );
                   return (
                     <div
                       key={box.id}
@@ -823,6 +933,7 @@ export function EditorCanvas({ editor }: Props) {
                       }}
                     >
                       {box.ocrSource &&
+                        !sourceScanDeleted &&
                         ocrCoverRects(box, pages[currentPage].vectors, vectorEdits).map((piece, index) => (
                           <span
                             key={index}

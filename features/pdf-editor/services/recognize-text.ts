@@ -379,17 +379,19 @@ export async function recognizeText(
         ?.drawImage(source, box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0, 0, 0, crop.width, crop.height);
       captures[`${currentPage}:${image.id}`] = crop.toDataURL('image/png');
     });
-    const newImages = detectedImages.filter(
-      (image) =>
-        !pageInfo.images.some(
-          (existing) =>
-            existing.id.startsWith('ocr-image-') &&
-            Math.abs(existing.x - image.x) < 3 &&
-            Math.abs(existing.top - image.top) < 3 &&
-            Math.abs(existing.width - image.width) < 6 &&
-            Math.abs(existing.height - image.height) < 6,
-        ),
-    );
+    const newImages = detectedImages
+      .filter(
+        (image) =>
+          !pageInfo.images.some(
+            (existing) =>
+              existing.id.startsWith('ocr-image-') &&
+              Math.abs(existing.x - image.x) < 3 &&
+              Math.abs(existing.top - image.top) < 3 &&
+              Math.abs(existing.width - image.width) < 6 &&
+              Math.abs(existing.height - image.height) < 6,
+          ),
+      )
+      .map((image) => ({ ...image, dataUrl: captures[`${currentPage}:${image.id}`] }));
     const detectedVectors = ocrRecognizeLayout
       ? detectScannedLines(source, renderScale, originX, originTop, stamp).filter(
           (vector) =>

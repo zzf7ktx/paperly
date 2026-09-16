@@ -5,10 +5,21 @@ import {
   type XfaDrawEdit,
 } from '../../../lib/xfa-template';
 import type { EditorState } from '../hooks/use-editor-state';
-import { filledRectangleAt, hexChannels, needsFormCleanup, needsTextCleanup, vectorUnderlyingColor } from '../lib/appearance';
+import {
+  filledRectangleAt,
+  hexChannels,
+  needsFormCleanup,
+  needsTextCleanup,
+  vectorUnderlyingColor,
+} from '../lib/appearance';
 import { closestStandardFont, editableBlockFont, fontFamilyIdentity } from '../lib/fonts';
 import { formBackdropGeometry, formBackdropPrimitiveGeometry } from '../lib/pdf-geometry';
-import { captureNativePdfImage, imageOverlapsEditedVectors } from '../lib/native-image';
+import {
+  areaOverlapsDeletedImage,
+  captureNativePdfImage,
+  imageOverlapsEditedImages,
+  imageOverlapsEditedVectors,
+} from '../lib/native-image';
 import { wrapTextForWidth } from '../lib/text';
 import { ocrCoverRects } from '../lib/ocr-covers';
 import type { FormBlock, FormEdit, TextBlock } from '../types';
@@ -96,7 +107,9 @@ export async function exportDocument(
       ).filter((control) => (control.required && !control.value.trim()) || !control.checkValidity());
       if (invalid.length) {
         invalid[0].focus();
-        throw new Error(`${invalid.length} required or typed XFA value${invalid.length === 1 ? '' : 's'} must be corrected before export.`);
+        throw new Error(
+          `${invalid.length} required or typed XFA value${invalid.length === 1 ? '' : 's'} must be corrected before export.`,
+        );
       }
     }
     const {
@@ -211,7 +224,13 @@ export async function exportDocument(
       }
     }
     if (removeOriginalContent && !isXfaDocument)
-      sourceBytes = await removeNativeContent(sourceBytes, { pages, edits, formEdits, imageEdits, vectorEdits });
+      sourceBytes = await removeNativeContent(sourceBytes, {
+        pages,
+        edits,
+        formEdits,
+        imageEdits,
+        vectorEdits,
+      });
     const pdfDocument = await PDFDocument.load(sourceBytes);
     if (removeOriginalContent && !isXfaDocument) {
       const form = pdfDocument.getForm();
@@ -223,7 +242,9 @@ export async function exportDocument(
         const field = block ? form.getFieldMaybe(block.name) : undefined;
         if (!field) continue;
         if ((field as any).acroField.getWidgets().length !== 1)
-          throw new Error('This field has multiple widgets. Selective deletion of one widget is not supported yet.');
+          throw new Error(
+            'This field has multiple widgets. Selective deletion of one widget is not supported yet.',
+          );
         form.removeField(field);
       }
     }
@@ -315,7 +336,9 @@ export async function exportDocument(
           if (!embeddedFonts['noto-sans-unicode']) {
             const response = await fetch('/ocr/noto-sans-regular.ttf');
             if (!response.ok) throw new Error('Unicode font is unavailable');
-            embeddedFonts['noto-sans-unicode'] = await pdfDocument.embedFont(await response.arrayBuffer(), { subset: true });
+            embeddedFonts['noto-sans-unicode'] = await pdfDocument.embedFont(await response.arrayBuffer(), {
+              subset: true,
+            });
           }
           return embeddedFonts['noto-sans-unicode'];
         }
@@ -347,7 +370,9 @@ export async function exportDocument(
           image.top + image.height / 2,
           vectorEdits,
           pageIndex,
-        ) || edit.eraseColor || '#ffffff',
+        ) ||
+          edit.eraseColor ||
+          '#ffffff',
       );
       const eraseLeft = Math.max(0, image.x - 1);
       const eraseRight = Math.min(page.getWidth(), image.x + image.width + 1);
@@ -393,8 +418,10 @@ export async function exportDocument(
       return rgb(((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255);
     };
     const scaledSvgPath = (path: string, scaleX: number, scaleY: number) =>
-      path.replace(/([ML])\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g, (_, command, x, y) =>
-        `${command} ${(Number(x) * scaleX).toFixed(3)} ${(Number(y) * scaleY).toFixed(3)}`,
+      path.replace(
+        /([ML])\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g,
+        (_, command, x, y) =>
+          `${command} ${(Number(x) * scaleX).toFixed(3)} ${(Number(y) * scaleY).toFixed(3)}`,
       );
     if (!isXfaDocument)
       for (const [key, edit] of Object.entries(edits)) {
@@ -432,7 +459,8 @@ export async function exportDocument(
           const edit = vectorEdits[`${pageIndex}:${vector.id}`] || {};
           if (vector.added || !Object.keys(edit).length) continue;
           const eraseColor = vectorColor(
-            vectorUnderlyingColor(pageInfo.vectors, vector, vectorEdits, pageIndex), '#ffffff',
+            vectorUnderlyingColor(pageInfo.vectors, vector, vectorEdits, pageIndex),
+            '#ffffff',
           );
           if (vector.kind === 'polygon' && vector.svgPath)
             pdfPage.drawSvgPath(vector.svgPath, {
@@ -461,10 +489,15 @@ export async function exportDocument(
           const key = `${pageIndex}:${image.id}`;
           if (
             Object.keys(imageEdits[key] || {}).length ||
-            !imageOverlapsEditedVectors(image, pageInfo, pageIndex, vectorEdits)
-          ) continue;
+            (!image.id.startsWith('ocr-image-') &&
+              !imageOverlapsEditedVectors(image, pageInfo, pageIndex, vectorEdits) &&
+              !imageOverlapsEditedImages(image, pageInfo, pageIndex, imageEdits))
+          )
+            continue;
           const capture =
-            (await captureNativePdfImage(pdfRef.current, pageIndex, image)) || imageCaptures[key];
+            image.dataUrl ||
+            (await captureNativePdfImage(pdfRef.current, pageIndex, image)) ||
+            imageCaptures[key];
           if (!capture) continue;
           const embedded = await embedDataImage(capture);
           pdfPage.drawImage(embedded, {
@@ -842,7 +875,20 @@ export async function exportDocument(
     pendingTextDraws.forEach((draw) => draw());
     for (const box of isXfaDocument ? [] : addedBoxes) {
       const page = pdfDocument.getPage(box.page);
-      if (box.ocrSource) {
+      if (
+        box.ocrSource &&
+        !areaOverlapsDeletedImage(
+          {
+            x: box.ocrOriginalX ?? box.x,
+            top: box.ocrOriginalTop ?? box.top,
+            width: box.ocrOriginalWidth ?? box.width,
+            height: box.ocrOriginalHeight ?? box.height,
+          },
+          pages[box.page],
+          box.page,
+          imageEdits,
+        )
+      ) {
         const eraseX = box.ocrOriginalX ?? box.x;
         const eraseTop = box.ocrOriginalTop ?? box.top;
         const eraseWidth = box.ocrOriginalWidth ?? box.width;
@@ -968,7 +1014,11 @@ export async function exportDocument(
   } catch (reason) {
     if (options?.bytesOnly) throw reason;
     console.error(reason);
-    setError(removeOriginalContent && reason instanceof Error ? reason.message : 'We could not export this PDF. Please try again.');
+    setError(
+      removeOriginalContent && reason instanceof Error
+        ? reason.message
+        : 'We could not export this PDF. Please try again.',
+    );
   } finally {
     if (!options?.bytesOnly) setLoading(false);
   }

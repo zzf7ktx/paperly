@@ -1,9 +1,18 @@
 'use client';
 import type { EditorHistorySnapshot, VectorEdit } from '../types';
 
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
+} from 'react';
 import { blockKey } from '../lib/text';
-import { captureNativePdfImage, imageOverlapsEditedVectors } from '../lib/native-image';
+import {
+  captureNativePdfImage,
+  imageOverlapsEditedImages,
+  imageOverlapsEditedVectors,
+} from '../lib/native-image';
 import { keepPopupToolActive } from '../lib/tool-preferences';
 import type { AddedImage, ImageBlock, SelectedElementRef, VectorBlock, VectorKind } from '../types';
 import type { EditorState } from './use-editor-state';
@@ -144,13 +153,16 @@ export function useCanvasInteraction({
     if (nativeImagesRef.current.pdf !== pdf)
       nativeImagesRef.current = { pdf, captures: {}, pending: new Set() };
     page.images.forEach((image) => {
-      if (!image.sourceName || !imageOverlapsEditedVectors(image, page, currentPage, vectorEdits))
+      if (
+        !image.sourceName ||
+        (!imageOverlapsEditedVectors(image, page, currentPage, vectorEdits) &&
+          !imageOverlapsEditedImages(image, page, currentPage, imageEdits))
+      )
         return;
       const key = `${currentPage}:${image.id}`;
       const cached = nativeImagesRef.current.captures[key];
       if (cached) {
-        if (imageCaptures[key] !== cached)
-          setImageCaptures((captures) => ({ ...captures, [key]: cached }));
+        if (imageCaptures[key] !== cached) setImageCaptures((captures) => ({ ...captures, [key]: cached }));
         return;
       }
       if (nativeImagesRef.current.pending.has(key)) return;
@@ -162,7 +174,7 @@ export function useCanvasInteraction({
         setImageCaptures((captures) => ({ ...captures, [key]: capture }));
       });
     });
-  }, [currentPage, imageCaptures, pages, pdfRef, setImageCaptures, vectorEdits]);
+  }, [currentPage, imageCaptures, imageEdits, pages, pdfRef, setImageCaptures, vectorEdits]);
 
   const startOcrRegionSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (tool !== 'ocr-region' || event.button !== 0 || ocrBusy) return;
@@ -282,9 +294,7 @@ export function useCanvasInteraction({
       );
       const keepDrawing = keepPopupToolActive();
       setSelectedVectorId(keepDrawing ? null : id);
-      setSelectedElements(
-        keepDrawing ? [] : [{ page: currentPage, kind: 'vector', id }],
-      );
+      setSelectedElements(keepDrawing ? [] : [{ page: currentPage, kind: 'vector', id }]);
       setSelected(null);
       setSelectedForm(null);
       setSelectedAddedId(null);
