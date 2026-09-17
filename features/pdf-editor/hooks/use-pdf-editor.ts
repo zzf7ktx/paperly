@@ -27,7 +27,7 @@ import { useEditorHistory } from './use-editor-history';
 
 import { useCallback, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { sampleTextBlockVisual } from '../lib/appearance';
-import { blockKey } from '../lib/text';
+import { blockKey, selectedElementKey } from '../lib/text';
 import { sanitizeXfaRichHtml } from '../lib/xfa-dom';
 import {
   applyNativeXfaTemplateEdits,
@@ -39,7 +39,7 @@ import {
 } from '../../../lib/xfa-template';
 import { exportDocument } from '../services/export-pdf';
 import { recognizeText } from '../services/recognize-text';
-import type { AddedTextBox, FormBlock, SnapGuides, TextBlock } from '../types';
+import type { AddedTextBox, FormBlock, OcrRun, SelectedElementRef, SnapGuides, TextBlock } from '../types';
 import { useEditorState } from './use-editor-state';
 
 export function usePdfEditor() {
@@ -102,6 +102,7 @@ export function usePdfEditor() {
     setHideScrollbars,
     isPanning,
     edits,
+    setEdits,
     past,
     setPast,
     future,
@@ -139,6 +140,7 @@ export function usePdfEditor() {
     setSelectedForm,
     formChanges,
     formEdits,
+    setFormEdits,
     formBackgrounds,
     setFormBackgrounds,
     normalCloneMode,
@@ -146,9 +148,15 @@ export function usePdfEditor() {
     addedBoxes,
     setAddedBoxes,
     addedImages,
+    setAddedImages,
     imageEdits,
+    setImageEdits,
     vectorEdits,
     setVectorEdits,
+    objectMetadata,
+    setObjectMetadata,
+    ocrRuns,
+    setOcrRuns,
     selectedVectorId,
     setSelectedVectorId,
     selectPdfShapes,
@@ -200,6 +208,8 @@ export function usePdfEditor() {
     setError,
     toast,
     setToast,
+    toastCanUndo,
+    setToastCanUndo,
     leftPanelWidth,
     setLeftPanelWidth,
     rightPanelWidth,
@@ -337,30 +347,61 @@ export function usePdfEditor() {
       (draw) => draw.kind === 'text' && !draw.deleted && draw.text?.trim(),
     );
     const editableFields = Object.values({ ...xfaFields, ...xfaStructureEdits }).filter(
-      (field) => !field.deleted && ['text', 'multiline', 'numeric', 'decimal', 'date', 'choice', 'checkbox', 'radio'].includes(field.kind),
+      (field) =>
+        !field.deleted &&
+        ['text', 'multiline', 'numeric', 'decimal', 'date', 'choice', 'checkbox', 'radio'].includes(
+          field.kind,
+        ),
     );
     const editablePages = session.pages.map((page, pageIndex) => ({
       ...page,
       blocks: [
         ...page.blocks,
-        ...editableDraws.filter((draw) => draw.page === pageIndex).map((draw, index) => ({
-          id: 1_000_000 + index, str: draw.text || '', x: draw.x, top: draw.top,
-          width: draw.width, height: draw.height, fontSize: draw.size || 11,
-          baseline: draw.top + (draw.size || 11), editorTop: draw.top, horizontalScale: 1,
-          font: draw.font || 'Helvetica', sourceFont: draw.font || 'Helvetica',
-          cssFont: draw.font || 'Helvetica', letterSpacing: 0, bold: Boolean(draw.bold), italic: Boolean(draw.italic),
-        })),
+        ...editableDraws
+          .filter((draw) => draw.page === pageIndex)
+          .map((draw, index) => ({
+            id: 1_000_000 + index,
+            str: draw.text || '',
+            x: draw.x,
+            top: draw.top,
+            width: draw.width,
+            height: draw.height,
+            fontSize: draw.size || 11,
+            baseline: draw.top + (draw.size || 11),
+            editorTop: draw.top,
+            horizontalScale: 1,
+            font: draw.font || 'Helvetica',
+            sourceFont: draw.font || 'Helvetica',
+            cssFont: draw.font || 'Helvetica',
+            letterSpacing: 0,
+            bold: Boolean(draw.bold),
+            italic: Boolean(draw.italic),
+          })),
       ],
       forms: [
         ...page.forms,
-        ...editableFields.filter((field) => field.page === pageIndex).map((field) => ({
-          id: `xfa-static:${field.key}`, name: field.name,
-          kind: (field.kind === 'checkbox' || field.kind === 'radio' || field.kind === 'choice' ? field.kind : 'text') as FormBlock['kind'],
-          x: field.x, top: field.top, width: field.width, height: field.height,
-          value: field.value ?? '', multiline: field.kind === 'multiline', fontSize: field.size,
-          font: field.font, color: field.color, backgroundColor: field.backgroundColor,
-          borderColor: field.borderColor, borderWidth: field.borderWidth, alignment: field.alignment,
-        })),
+        ...editableFields
+          .filter((field) => field.page === pageIndex)
+          .map((field) => ({
+            id: `xfa-static:${field.key}`,
+            name: field.name,
+            kind: (field.kind === 'checkbox' || field.kind === 'radio' || field.kind === 'choice'
+              ? field.kind
+              : 'text') as FormBlock['kind'],
+            x: field.x,
+            top: field.top,
+            width: field.width,
+            height: field.height,
+            value: field.value ?? '',
+            multiline: field.kind === 'multiline',
+            fontSize: field.size,
+            font: field.font,
+            color: field.color,
+            backgroundColor: field.backgroundColor,
+            borderColor: field.borderColor,
+            borderWidth: field.borderWidth,
+            alignment: field.alignment,
+          })),
       ],
     }));
     session.pages = editablePages;
@@ -397,8 +438,7 @@ export function usePdfEditor() {
         if (embeddedFallback) {
           nextBytes = sourceBytes.slice();
           useOriginalFallbackRenderer = true;
-        }
-        else {
+        } else {
           nextBytes = await createRenderedFallback();
           generatedFromXfaPages = true;
         }
@@ -806,6 +846,253 @@ export function usePdfEditor() {
     restoreHistorySnapshot(next);
   };
 
+  const selectLayerObject = (item: SelectedElementRef, additive = false) => {
+    setCurrentPage(item.page);
+    updateElementSelection({ ...item, selectionRole: 'direct' }, additive);
+    setTool('select');
+  };
+
+  const renameLayerObject = (item: SelectedElementRef, name: string) => {
+    recordHistory();
+    const key = selectedElementKey(item);
+    setObjectMetadata((metadata) => ({
+      ...metadata,
+      [key]: { ...metadata[key], name: name.trim() || undefined },
+    }));
+  };
+
+  const toggleLayerObjectLock = (item: SelectedElementRef) => {
+    recordHistory();
+    const key = selectedElementKey(item);
+    const willLock = !objectMetadata[key]?.locked;
+    setObjectMetadata((metadata) => ({
+      ...metadata,
+      [key]: { ...metadata[key], locked: willLock },
+    }));
+    if (willLock) setSelectedElements((items) => items.filter((entry) => selectedElementKey(entry) !== key));
+  };
+
+  const isLayerObjectLocked = (item: SelectedElementRef) =>
+    Boolean(objectMetadata[selectedElementKey(item)]?.locked);
+
+  const isLayerObjectHidden = (item: SelectedElementRef) => {
+    if (item.kind === 'text') return Boolean(edits[`${item.page}:${item.id}`]?.deleted);
+    if (item.kind === 'form') return Boolean(formEdits[`${item.page}:${item.id}`]?.deleted);
+    if (item.kind === 'image') return Boolean(imageEdits[`${item.page}:${item.id}`]?.deleted);
+    if (item.kind === 'vector') {
+      const vector = pages[item.page]?.vectors.find((entry) => entry.id === item.id);
+      return Boolean(vector?.hidden || vectorEdits[`${item.page}:${item.id}`]?.deleted);
+    }
+    if (item.kind === 'added-text') return Boolean(addedBoxes.find((entry) => entry.id === item.id)?.hidden);
+    return Boolean(addedImages.find((entry) => entry.id === item.id)?.hidden);
+  };
+
+  const toggleLayerObjectVisibility = (item: SelectedElementRef) => {
+    recordHistory();
+    const hidden = isLayerObjectHidden(item);
+    if (item.kind === 'text') {
+      const block = pages[item.page]?.blocks.find((entry) => String(entry.id) === item.id);
+      if (block)
+        setEdits((changes) => ({
+          ...changes,
+          [`${item.page}:${item.id}`]: {
+            ...(changes[`${item.page}:${item.id}`] || { text: block.str }),
+            deleted: !hidden,
+          },
+        }));
+    } else if (item.kind === 'form') {
+      setFormEdits((changes) => ({
+        ...changes,
+        [`${item.page}:${item.id}`]: {
+          ...changes[`${item.page}:${item.id}`],
+          deleted: !hidden,
+          eraseOriginal: !hidden,
+        },
+      }));
+    } else if (item.kind === 'image') {
+      setImageEdits((changes) => ({
+        ...changes,
+        [`${item.page}:${item.id}`]: { ...changes[`${item.page}:${item.id}`], deleted: !hidden },
+      }));
+    } else if (item.kind === 'vector') {
+      const vector = pages[item.page]?.vectors.find((entry) => entry.id === item.id);
+      if (vector?.added || vector?.ocrRunId)
+        setPages((allPages) =>
+          allPages.map((page, pageIndex) =>
+            pageIndex === item.page
+              ? {
+                  ...page,
+                  vectors: page.vectors.map((entry) =>
+                    entry.id === item.id ? { ...entry, hidden: !hidden } : entry,
+                  ),
+                }
+              : page,
+          ),
+        );
+      else
+        setVectorEdits((changes) => ({
+          ...changes,
+          [`${item.page}:${item.id}`]: { ...changes[`${item.page}:${item.id}`], deleted: !hidden },
+        }));
+    } else if (item.kind === 'added-text') {
+      setAddedBoxes((boxes) => boxes.map((box) => (box.id === item.id ? { ...box, hidden: !hidden } : box)));
+    } else {
+      setAddedImages((images) =>
+        images.map((image) => (image.id === item.id ? { ...image, hidden: !hidden } : image)),
+      );
+    }
+    const noun =
+      item.kind === 'text' || item.kind === 'added-text'
+        ? 'text box'
+        : item.kind === 'form'
+          ? 'form field'
+          : item.kind === 'vector'
+            ? 'shape'
+            : 'image';
+    const original =
+      item.kind === 'text' ||
+      item.kind === 'form' ||
+      item.kind === 'image' ||
+      (item.kind === 'vector' && !pages[item.page]?.vectors.find((entry) => entry.id === item.id)?.added);
+    setToast(
+      original
+        ? `1 original ${noun} ${hidden ? 'restored' : 'hidden'}`
+        : `1 added ${noun} ${hidden ? 'shown' : 'hidden'}`,
+    );
+    setToastCanUndo(true);
+  };
+
+  const deleteLayerObject = (item: SelectedElementRef) => {
+    const original =
+      item.kind === 'text' ||
+      item.kind === 'form' ||
+      item.kind === 'image' ||
+      (item.kind === 'vector' && !pages[item.page]?.vectors.find((entry) => entry.id === item.id)?.added);
+    if (original) {
+      if (isLayerObjectHidden(item)) return;
+      toggleLayerObjectVisibility(item);
+    } else {
+      recordHistory();
+      if (item.kind === 'added-text') setAddedBoxes((boxes) => boxes.filter((box) => box.id !== item.id));
+      else if (item.kind === 'added-image')
+        setAddedImages((images) => images.filter((image) => image.id !== item.id));
+      else if (item.kind === 'vector')
+        setPages((allPages) =>
+          allPages.map((page, pageIndex) =>
+            pageIndex === item.page
+              ? { ...page, vectors: page.vectors.filter((vector) => vector.id !== item.id) }
+              : page,
+          ),
+        );
+    }
+    setToast(original ? '1 original object hidden' : '1 added object deleted');
+    setToastCanUndo(true);
+  };
+
+  const toggleOcrRunCategory = (run: OcrRun, category: 'text' | 'shapes' | 'images') => {
+    recordHistory();
+    if (category === 'text') {
+      const members = addedBoxes.filter((box) => run.textIds.includes(box.id));
+      const hide = members.some((box) => !box.hidden);
+      setAddedBoxes((boxes) =>
+        boxes.map((box) => (run.textIds.includes(box.id) ? { ...box, hidden: hide } : box)),
+      );
+    } else if (category === 'shapes') {
+      const members = pages[run.page]?.vectors.filter((vector) => run.vectorIds.includes(vector.id)) || [];
+      const hide = members.some((vector) => !vector.hidden);
+      setPages((allPages) =>
+        allPages.map((page, index) =>
+          index === run.page
+            ? {
+                ...page,
+                vectors: page.vectors.map((vector) =>
+                  run.vectorIds.includes(vector.id) ? { ...vector, hidden: hide } : vector,
+                ),
+              }
+            : page,
+        ),
+      );
+    } else {
+      const members = pages[run.page]?.images.filter((image) => run.imageIds.includes(image.id)) || [];
+      const hide = members.some((image) => !image.hidden);
+      setPages((allPages) =>
+        allPages.map((page, index) =>
+          index === run.page
+            ? {
+                ...page,
+                images: page.images.map((image) =>
+                  run.imageIds.includes(image.id) ? { ...image, hidden: hide } : image,
+                ),
+              }
+            : page,
+        ),
+      );
+    }
+  };
+
+  const toggleOcrCleanupCovers = (run: OcrRun) => {
+    recordHistory();
+    setOcrRuns((runs) =>
+      runs.map((entry) =>
+        entry.id === run.id
+          ? { ...entry, cleanupCoversVisible: entry.cleanupCoversVisible === false }
+          : entry,
+      ),
+    );
+  };
+
+  const reorderLayerObject = (item: SelectedElementRef, direction: -1 | 1) => {
+    const move = <T extends { id: string }>(items: T[]) => {
+      const index = items.findIndex((entry) => entry.id === item.id);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= items.length) return items;
+      const next = [...items];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    };
+    recordHistory();
+    if (item.kind === 'added-text') setAddedBoxes(move);
+    else if (item.kind === 'added-image') setAddedImages(move);
+    else if (
+      item.kind === 'vector' &&
+      pages[item.page]?.vectors.some((entry) => entry.id === item.id && (entry.added || entry.ocrRunId))
+    )
+      setPages((allPages) =>
+        allPages.map((page, index) =>
+          index === item.page ? { ...page, vectors: move(page.vectors) } : page,
+        ),
+      );
+    else if (
+      item.kind === 'image' &&
+      pages[item.page]?.images.some((entry) => entry.id === item.id && entry.ocrRunId)
+    )
+      setPages((allPages) =>
+        allPages.map((page, index) => (index === item.page ? { ...page, images: move(page.images) } : page)),
+      );
+  };
+
+  const hideOcrSourceScan = (run: OcrRun) => {
+    const page = pages[run.page];
+    if (!page) return;
+    const source = run.sourceImageId
+      ? page.images.find((image) => image.id === run.sourceImageId)
+      : page.images
+          .filter((image) => !image.ocrRunId)
+          .sort((a, b) => b.width * b.height - a.width * a.height)[0];
+    if (!source || source.width * source.height < page.width * page.height * 0.6) {
+      setToast('No full-page source scan was detected');
+      setToastCanUndo(false);
+      return;
+    }
+    recordHistory();
+    setImageEdits((changes) => ({
+      ...changes,
+      [`${run.page}:${source.id}`]: { ...changes[`${run.page}:${source.id}`], deleted: true },
+    }));
+    setToast('1 source scan hidden · recognized content kept');
+    setToastCanUndo(true);
+  };
+
   const exportPdf = () => exportDocument({ ...state, vectorBackgroundForText });
   const getXfaXmlBytes = async () => {
     if (!pdfBytes) throw new Error('Open an XFA PDF first.');
@@ -815,7 +1102,10 @@ export function usePdfEditor() {
         const serialized = await pdfRef.current.saveDocument();
         if ((await readNativeXfaPackets(serialized)).length) originalBytes = serialized;
       } catch (reason) {
-        console.warn('Current XFA values could not be serialized for XML inspection; using the opened PDF.', reason);
+        console.warn(
+          'Current XFA values could not be serialized for XML inspection; using the opened PDF.',
+          reason,
+        );
       }
     }
     const templateEdits = Object.values(xfaStructureEdits);
@@ -994,6 +1284,10 @@ export function usePdfEditor() {
     error,
     toast,
     setToast,
+    toastCanUndo,
+    setToastCanUndo,
+    objectMetadata,
+    ocrRuns,
     leftPanelWidth,
     setLeftPanelWidth,
     rightPanelWidth,
@@ -1111,6 +1405,17 @@ export function usePdfEditor() {
     toggleExistingImageDeleted,
     removeAddedImage,
     deleteSelectedElements,
+    selectLayerObject,
+    renameLayerObject,
+    toggleLayerObjectLock,
+    isLayerObjectLocked,
+    isLayerObjectHidden,
+    toggleLayerObjectVisibility,
+    deleteLayerObject,
+    toggleOcrRunCategory,
+    toggleOcrCleanupCovers,
+    reorderLayerObject,
+    hideOcrSourceScan,
     runOcr,
     startOcrRegionSelection,
     startVectorDrawing,

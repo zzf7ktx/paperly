@@ -3,6 +3,7 @@ import { EditorCanvas } from './components/editor-canvas';
 import { EditorToolbar } from './components/editor-toolbar';
 import { PageRail } from './components/page-rail';
 import { PropertiesPanel } from './components/properties-panel';
+import { LayersPanel } from './components/layers-panel';
 import { XfaXmlDialog } from './components/xfa-xml-dialog';
 import './components/xfa-xml-dialog.css';
 
@@ -71,6 +72,7 @@ export default function PdfEditor() {
   const [motionEnabled, setMotionEnabled] = useState(true);
   const [updateDownloadDirectory, setUpdateDownloadDirectory] = useState<string | null>(null);
   const [nativeUpdaterAvailable, setNativeUpdaterAvailable] = useState(false);
+  const [rightPanelView, setRightPanelView] = useState<'properties' | 'layers'>('properties');
   const {
     uploadRef,
     documentTabs,
@@ -105,6 +107,9 @@ export default function PdfEditor() {
     error,
     setError,
     toast,
+    setToast,
+    toastCanUndo,
+    setToastCanUndo,
     leftPanelWidth,
     setLeftPanelWidth,
     rightPanelWidth,
@@ -141,8 +146,14 @@ export default function PdfEditor() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setNativeUpdaterAvailable(true);
 
-    void updater.getVersion().then(setCurrentVersion).catch(() => undefined);
-    void updater.getDownloadDirectory().then(setUpdateDownloadDirectory).catch(() => undefined);
+    void updater
+      .getVersion()
+      .then(setCurrentVersion)
+      .catch(() => undefined);
+    void updater
+      .getDownloadDirectory()
+      .then(setUpdateDownloadDirectory)
+      .catch(() => undefined);
 
     return updater.onStatus(({ status, version, percent }) => {
       setUpdateStatus(status === 'checking' ? 'loading' : status);
@@ -251,7 +262,18 @@ export default function PdfEditor() {
         }}
       >
         {documentTabs.map((tab) => (
-          <div key={tab.id} className={`document-tab ${tab.id === activeDocumentId ? 'active' : ''}`}>
+          <div
+            key={tab.id}
+            className={`document-tab ${tab.id === activeDocumentId ? 'active' : ''}`}
+            onMouseDown={(event) => {
+              if (event.button === 1) event.preventDefault();
+            }}
+            onAuxClick={(event) => {
+              if (event.button !== 1) return;
+              event.preventDefault();
+              closeDocument(tab.id);
+            }}
+          >
             <button
               className="document-tab-select"
               onClick={() => switchDocument(tab.id)}
@@ -508,19 +530,21 @@ export default function PdfEditor() {
                           : 'Check for updates'
             }
           >
-            <span>{updateStatus === 'loading'
-              ? 'Checking…'
-              : updateStatus === 'downloading'
-                ? `Downloading${downloadProgress === null ? '...' : ` ${downloadProgress}%`}`
-                : updateStatus === 'downloaded'
-                  ? `Install ${latestVersion ?? 'update'}`
-                  : updateStatus === 'available'
-                    ? `Update ${latestVersion ?? ''}`
-                    : updateStatus === 'latest'
-                      ? 'Up to date'
-                      : updateStatus === 'error'
-                        ? 'Try updates'
-                        : 'Check for updates'}</span>
+            <span>
+              {updateStatus === 'loading'
+                ? 'Checking…'
+                : updateStatus === 'downloading'
+                  ? `Downloading${downloadProgress === null ? '...' : ` ${downloadProgress}%`}`
+                  : updateStatus === 'downloaded'
+                    ? `Install ${latestVersion ?? 'update'}`
+                    : updateStatus === 'available'
+                      ? `Update ${latestVersion ?? ''}`
+                      : updateStatus === 'latest'
+                        ? 'Up to date'
+                        : updateStatus === 'error'
+                          ? 'Try updates'
+                          : 'Check for updates'}
+            </span>
             <small className="update-version">v{currentVersion.replace(/^v/i, '')}</small>
           </button>
           <details ref={moreMenuRef} className="header-more-menu">
@@ -573,7 +597,9 @@ export default function PdfEditor() {
                 <button
                   aria-label="Choose update download and installer temp folder"
                   disabled={
-                    updateStatus === 'loading' || updateStatus === 'downloading' || updateStatus === 'downloaded'
+                    updateStatus === 'loading' ||
+                    updateStatus === 'downloading' ||
+                    updateStatus === 'downloaded'
                   }
                   onClick={async () => {
                     const selected = await window.paperlyUpdater?.chooseDownloadDirectory();
@@ -795,15 +821,18 @@ export default function PdfEditor() {
           }}
         />
 
-        <PropertiesPanel editor={editor} />
+        {rightPanelView === 'layers' ? (
+          <LayersPanel editor={editor} onShowProperties={() => setRightPanelView('properties')} />
+        ) : (
+          <PropertiesPanel editor={editor} onShowLayers={() => setRightPanelView('layers')} />
+        )}
       </section>
       <div className={`status-pill ${error ? 'error' : ''}`}>
         <span />{' '}
         {error ||
           (loading
             ? 'Working on your document…'
-            : toast ||
-              (tool === 'add-xfa'
+            : tool === 'add-xfa'
                 ? `Click the page to place a native ${xfaAddKind} XFA field`
                 : tool === 'add-text'
                   ? `Click the page to place a text box · ${snapEnabled ? `${snapAnchor} by ${snapMode}` : 'Snap off'}`
@@ -811,8 +840,17 @@ export default function PdfEditor() {
                     ? isXfaDocument
                       ? `XFA form · ${xfaChanged ? 'Unsaved field changes' : 'Ready to fill and export'}`
                       : `${xfaViewMode === 'fallback' ? 'Fallback PDF · ' : ''}${Object.keys(edits).length + addedBoxes.length} change${Object.keys(edits).length + addedBoxes.length === 1 ? '' : 's'} · ${addedBoxes.length} added text box${addedBoxes.length === 1 ? '' : 'es'}`
-                    : 'Text editing preview · Open your own PDF'))}
+                    : 'Text editing preview · Open your own PDF')}
       </div>
+      {toast && (
+        <div className="action-toast" role="status">
+          <span>{toast}</span>
+          {toastCanUndo && (
+            <button onClick={() => { undo(); setToast(''); setToastCanUndo(false); }}>Undo</button>
+          )}
+          <button aria-label="Dismiss notification" onClick={() => { setToast(''); setToastCanUndo(false); }}>×</button>
+        </div>
+      )}
       {loading && (
         <div className="loading-overlay" role="status">
           <div className="loader" />

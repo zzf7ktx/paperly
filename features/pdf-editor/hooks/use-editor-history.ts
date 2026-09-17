@@ -27,6 +27,8 @@ type Context = Pick<
   | 'addedImages'
   | 'imageEdits'
   | 'vectorEdits'
+  | 'objectMetadata'
+  | 'ocrRuns'
   | 'xfaStructureEdits'
   | 'xfaDrawEdits'
   | 'xfaChanged'
@@ -41,6 +43,8 @@ type Context = Pick<
   | 'setAddedImages'
   | 'setImageEdits'
   | 'setVectorEdits'
+  | 'setObjectMetadata'
+  | 'setOcrRuns'
   | 'setXfaStructureEdits'
   | 'setXfaDrawEdits'
   | 'setXfaChanged'
@@ -75,6 +79,8 @@ export function useEditorHistory({
   addedImages,
   imageEdits,
   vectorEdits,
+  objectMetadata,
+  ocrRuns,
   xfaStructureEdits,
   xfaDrawEdits,
   xfaChanged,
@@ -89,6 +95,8 @@ export function useEditorHistory({
   setAddedImages,
   setImageEdits,
   setVectorEdits,
+  setObjectMetadata,
+  setOcrRuns,
   setXfaStructureEdits,
   setXfaDrawEdits,
   setXfaChanged,
@@ -116,6 +124,8 @@ export function useEditorHistory({
       addedImages,
       imageEdits,
       vectorEdits,
+      objectMetadata,
+      ocrRuns,
       xfaStructureEdits,
       xfaDrawEdits,
       xfaChanged,
@@ -134,6 +144,8 @@ export function useEditorHistory({
       imageEdits,
       pages,
       vectorEdits,
+      objectMetadata,
+      ocrRuns,
       xfaChanged,
       xfaDrawEdits,
       xfaStructureEdits,
@@ -180,6 +192,8 @@ export function useEditorHistory({
       setAddedImages(snapshot.addedImages);
       setImageEdits(snapshot.imageEdits);
       setVectorEdits(snapshot.vectorEdits || {});
+      setObjectMetadata(snapshot.objectMetadata || {});
+      setOcrRuns(snapshot.ocrRuns || []);
       setXfaStructureEdits(snapshot.xfaStructureEdits);
       setXfaDrawEdits(snapshot.xfaDrawEdits);
       setXfaChanged(snapshot.xfaChanged);

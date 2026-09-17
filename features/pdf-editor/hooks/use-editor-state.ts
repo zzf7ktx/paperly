@@ -20,6 +20,8 @@ import type {
   FormEdit,
   FormValueMap,
   ImageEdit,
+  ObjectMetadata,
+  OcrRun,
   PageInfo,
   PropertyPanelMode,
   SelectedElementRef,
@@ -48,6 +50,8 @@ export function useEditorState() {
     clientY: number;
     scrollLeft: number;
     scrollTop: number;
+    moved?: boolean;
+    temporary?: boolean;
   } | null>(null);
   const pdfRef = useRef<any>(null);
   const renderTaskRef = useRef<any>(null);
@@ -134,6 +138,8 @@ export function useEditorState() {
   const [addedImages, setAddedImages] = useState<AddedImage[]>([]);
   const [imageEdits, setImageEdits] = useState<Record<string, ImageEdit>>({});
   const [vectorEdits, setVectorEdits] = useState<Record<string, VectorEdit>>({});
+  const [objectMetadata, setObjectMetadata] = useState<Record<string, ObjectMetadata>>({});
+  const [ocrRuns, setOcrRuns] = useState<OcrRun[]>([]);
   const [selectedVectorId, setSelectedVectorId] = useState<string | null>(null);
   const [selectPdfShapes, setSelectPdfShapes] = useState(false);
   const [moveShapeContents, setMoveShapeContents] = useState(false);
@@ -181,6 +187,7 @@ export function useEditorState() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
+  const [toastCanUndo, setToastCanUndo] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(164);
   const [rightPanelWidth, setRightPanelWidth] = useState(300);
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
@@ -330,6 +337,10 @@ export function useEditorState() {
     setImageEdits,
     vectorEdits,
     setVectorEdits,
+    objectMetadata,
+    setObjectMetadata,
+    ocrRuns,
+    setOcrRuns,
     selectedVectorId,
     setSelectedVectorId,
     selectPdfShapes,
@@ -390,6 +401,8 @@ export function useEditorState() {
     setError,
     toast,
     setToast,
+    toastCanUndo,
+    setToastCanUndo,
     leftPanelWidth,
     setLeftPanelWidth,
     rightPanelWidth,

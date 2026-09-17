@@ -187,7 +187,7 @@ export function TextLayoutProperties({ editor }: Props) {
             className={activeEdit?.deleted ? 'restore-box' : 'delete-box'}
             onClick={() => commit(activeKey, { deleted: !activeEdit?.deleted })}
           >
-            {activeEdit?.deleted ? 'Restore existing text' : 'Delete existing text'}
+            {activeEdit?.deleted ? 'Restore original text' : 'Hide original text'}
           </button>
         )}
       </section>

@@ -43,6 +43,7 @@ type Context = Pick<
   | 'formBackgrounds'
   | 'addedBoxes'
   | 'addedImages'
+  | 'ocrRuns'
   | 'imageEdits'
   | 'vectorEdits'
   | 'imageCaptures'
@@ -77,6 +78,7 @@ export async function exportDocument(
     formBackgrounds,
     addedBoxes,
     addedImages,
+    ocrRuns,
     imageEdits,
     vectorEdits,
     imageCaptures,
@@ -401,7 +403,7 @@ export async function exportDocument(
         }),
       );
     }
-    for (const image of isXfaDocument ? [] : addedImages) {
+    for (const image of isXfaDocument ? [] : addedImages.filter((entry) => !entry.hidden)) {
       const page = pdfDocument.getPage(image.page);
       const embedded = await embedDataImage(image.dataUrl);
       pendingImageDraws.push(() =>
@@ -486,6 +488,7 @@ export async function exportDocument(
           }
         }
         for (const image of pageInfo.images) {
+          if (image.hidden) continue;
           const key = `${pageIndex}:${image.id}`;
           if (
             Object.keys(imageEdits[key] || {}).length ||
@@ -508,6 +511,7 @@ export async function exportDocument(
           });
         }
         for (const vector of pageInfo.vectors) {
+          if (vector.hidden) continue;
           const edit = vectorEdits[`${pageIndex}:${vector.id}`] || {};
           if (!vector.added && !Object.keys(edit).length) continue;
           if (edit.deleted) continue;
@@ -873,10 +877,11 @@ export async function exportDocument(
       }
     }
     pendingTextDraws.forEach((draw) => draw());
-    for (const box of isXfaDocument ? [] : addedBoxes) {
+    for (const box of isXfaDocument ? [] : addedBoxes.filter((entry) => !entry.hidden)) {
       const page = pdfDocument.getPage(box.page);
       if (
         box.ocrSource &&
+        (!box.ocrRunId || ocrRuns.find((run) => run.id === box.ocrRunId)?.cleanupCoversVisible !== false) &&
         !areaOverlapsDeletedImage(
           {
             x: box.ocrOriginalX ?? box.x,

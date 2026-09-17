@@ -36,6 +36,7 @@ type Context = Pick<
   | 'setAddedBoxes'
   | 'setSelectedVectorId'
   | 'setToast'
+  | 'setToastCanUndo'
   | 'deleteSelectionRef'
 > & {
   recordHistory: (snapshot?: EditorHistorySnapshot) => void;
@@ -78,6 +79,7 @@ export function useImageEditing({
   setAddedBoxes,
   setSelectedVectorId,
   setToast,
+  setToastCanUndo,
   deleteSelectionRef,
 }: Context) {
   const addImageFile = async (file?: File) => {
@@ -370,15 +372,24 @@ export function useImageEditing({
       setAddedBoxes((boxes) => boxes.filter((box) => !selectedAddedText.has(box.id)));
     if (selectedAddedImages.size)
       setAddedImages((images) => images.filter((image) => !selectedAddedImages.has(image.id)));
-    const count = selectedElements.length;
+    const originalVectorCount = selectedVectors.filter((item) =>
+      !pages[item.page]?.vectors.find((vector) => vector.id === item.id)?.added,
+    ).length;
+    const originalCount = selectedText.length + selectedForms.length + selectedImages.length + originalVectorCount;
+    const addedCount = selectedElements.length - originalCount;
     setSelectedElements([]);
     setSelected(null);
     setSelectedForm(null);
     setSelectedAddedId(null);
     setSelectedImage(null);
     setSelectedVectorId(null);
-    setToast(`${count} element${count === 1 ? '' : 's'} deleted`);
-    setTimeout(() => setToast(''), 2200);
+    const parts = [
+      originalCount ? `${originalCount} original object${originalCount === 1 ? '' : 's'} hidden` : '',
+      addedCount ? `${addedCount} added object${addedCount === 1 ? '' : 's'} deleted` : '',
+    ].filter(Boolean);
+    setToast(parts.join(' · '));
+    setToastCanUndo(true);
+    setTimeout(() => { setToast(''); setToastCanUndo(false); }, 5000);
   };
   deleteSelectionRef.current = deleteSelectedElements;
 

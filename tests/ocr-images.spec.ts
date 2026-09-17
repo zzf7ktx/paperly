@@ -55,6 +55,8 @@ test('removing the source scan preserves OCR-recognized shapes and logo', async 
   await expect(page.locator('.pdf-image-box.is-deleted')).toHaveCount(1);
   await expect(page.locator('.image-layer .existing img')).toBeVisible();
   await expect(page.locator('.vector-layer')).toHaveClass(/above-image-cleanup/);
+  await page.locator('details').filter({ hasText: 'Select PDF shapes' }).locator('summary').click();
+  await page.getByRole('button', { name: /Select PDF shapes/ }).click();
   await expect(page.locator('.vector-layer .editable-vector').first()).toBeVisible();
   await expect(page.locator('.ocr-background-cover')).toHaveCount(0);
   const layerOrder = await page.evaluate(() => ({
@@ -129,8 +131,13 @@ for (const layout of [false, true]) {
       page.locator('.added-text-box.is-selected').filter({ hasText: '+ Deposits and other credits' }),
     ).toHaveCount(1);
     await expect(page.locator('.vector-selection-box')).toHaveCount(0);
-    // A click at the same background location still selects the shape.
+    // With PDF shape selection off, clicks ignore OCR-derived shapes too.
     await page.mouse.click(firstRow!.x - 8, firstRow!.y - 3);
+    await expect(page.locator('.vector-selection-box')).toHaveCount(0);
+    await page.locator('details').filter({ hasText: 'Select PDF shapes' }).locator('summary').click();
+    await page.getByRole('button', { name: /Select PDF shapes/ }).click();
+    // Turning shape selection on makes reconstructed shapes interactive again.
+    await page.locator('.vector-layer .editable-vector').first().click({ force: true });
     await expect(page.locator('.vector-selection-box')).toHaveCount(1);
     const logo = page.locator('.image-layer .existing').last();
     await expect(page.locator('.image-layer .existing')).toHaveCount(4);

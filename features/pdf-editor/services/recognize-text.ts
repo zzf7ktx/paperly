@@ -21,6 +21,7 @@ type Context = Pick<
   | 'setSelectedElements'
   | 'setSelectedForm'
   | 'setAddedBoxes'
+  | 'setOcrRuns'
   | 'setImageCaptures'
   | 'setSelectedVectorId'
   | 'setSelectedImage'
@@ -53,6 +54,7 @@ export async function recognizeText(
     setSelectedElements,
     setSelectedForm,
     setAddedBoxes,
+    setOcrRuns,
     setImageCaptures,
     setSelectedVectorId,
     setSelectedImage,
@@ -361,12 +363,19 @@ export async function recognizeText(
     const originX = region?.x || 0;
     const originTop = region?.top || 0;
     const stamp = Date.now();
+    const ocrRunId = `ocr-run-${currentPage}-${stamp}`;
+    const sourceImageId = pageInfo.images
+      .filter(
+        (image) => !image.ocrRunId && image.width * image.height >= pageInfo.width * pageInfo.height * 0.6,
+      )
+      .sort((a, b) => b.width * b.height - a.width * a.height)[0]?.id;
     const detectedImages = imageRegions.map((box, index) => ({
       id: `ocr-image-${stamp}-${index}`,
       x: originX + box.x0 / renderScale,
       top: originTop + box.y0 / renderScale,
       width: (box.x1 - box.x0) / renderScale,
       height: (box.y1 - box.y0) / renderScale,
+      ocrRunId,
     }));
     const captures: Record<string, string> = {};
     detectedImages.forEach((image, index) => {
@@ -393,15 +402,22 @@ export async function recognizeText(
       )
       .map((image) => ({ ...image, dataUrl: captures[`${currentPage}:${image.id}`] }));
     const detectedVectors = ocrRecognizeLayout
-      ? detectScannedLines(source, renderScale, originX, originTop, stamp).filter(
-          (vector) =>
-            !detectedImages.some((image) =>
-              insideOcrImage(
-                { x0: vector.x, y0: vector.top, x1: vector.x + vector.width, y1: vector.top + vector.height },
-                { x0: image.x, y0: image.top, x1: image.x + image.width, y1: image.top + image.height },
+      ? detectScannedLines(source, renderScale, originX, originTop, stamp)
+          .filter(
+            (vector) =>
+              !detectedImages.some((image) =>
+                insideOcrImage(
+                  {
+                    x0: vector.x,
+                    y0: vector.top,
+                    x1: vector.x + vector.width,
+                    y1: vector.top + vector.height,
+                  },
+                  { x0: image.x, y0: image.top, x1: image.x + image.width, y1: image.top + image.height },
+                ),
               ),
-            ),
-        )
+          )
+          .map((vector) => ({ ...vector, ocrRunId }))
       : [];
     const detectedRectangles = detectedVectors.filter((vector) => vector.kind === 'rectangle');
     const ocrMeasureContext = document.createElement('canvas').getContext('2d');
@@ -502,6 +518,7 @@ export async function recognizeText(
         alignment,
         autoFit: true,
         ocrSource: true,
+        ocrRunId,
         ocrConfidence: Number(line.confidence || 0),
         ocrBackground: background,
         ocrBackgroundImage: containingRectangle
@@ -530,6 +547,21 @@ export async function recognizeText(
             : page,
         ),
       );
+    setOcrRuns((runs) => [
+      ...runs,
+      {
+        id: ocrRunId,
+        page: currentPage,
+        createdAt: stamp,
+        region: region || { x: 0, top: 0, width: pageInfo.width, height: pageInfo.height },
+        textIds: boxes.map((box) => box.id),
+        vectorIds: detectedVectors.map((vector) => vector.id),
+        imageIds: newImages.map((image) => image.id),
+        sourceImageId,
+        cleanupCoverCount: boxes.length,
+        cleanupCoversVisible: true,
+      },
+    ]);
     const refs: SelectedElementRef[] = [
       ...boxes.map((box) => ({ page: currentPage, kind: 'added-text' as const, id: box.id })),
       ...detectedVectors.map((vector) => ({ page: currentPage, kind: 'vector' as const, id: vector.id })),
