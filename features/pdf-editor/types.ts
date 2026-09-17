@@ -237,7 +237,9 @@ export type OcrRun = {
   textIds: string[];
   vectorIds: string[];
   imageIds: string[];
+  sourceImageId?: string;
   cleanupCoverCount: number;
+  cleanupCoversVisible?: boolean;
 };
 
 export type ObjectMetadata = {

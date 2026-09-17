@@ -1,6 +1,13 @@
 'use client';
 
-import { Fragment, type CSSProperties, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react';
+import {
+  Fragment,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { DemoDocument } from './demo-document';
 import { FormBackdropLayer } from './form-backdrop-layer';
 import { TextBoxControls } from './text-box-controls';
@@ -55,6 +62,7 @@ type Props = {
     | 'formBackgrounds'
     | 'addedBoxes'
     | 'addedImages'
+    | 'ocrRuns'
     | 'imageEdits'
     | 'vectorEdits'
     | 'selectedVectorId'
@@ -160,6 +168,7 @@ export function EditorCanvas({ editor }: Props) {
     formBackgrounds,
     addedBoxes,
     addedImages,
+    ocrRuns,
     imageEdits,
     vectorEdits,
     selectedVectorId,
@@ -250,14 +259,22 @@ export function EditorCanvas({ editor }: Props) {
     };
     const vectorAtPoint = pages[currentPage].vectors
       .filter((vector) => {
-        if (!vector.added || vector.hidden || vectorEdits[`${currentPage}:${vector.id}`]?.deleted) return false;
+        if (!vector.added || vector.hidden || vectorEdits[`${currentPage}:${vector.id}`]?.deleted)
+          return false;
+        if (vector.ocrRunId && !selectPdfShapes) return false;
         const edit = vectorEdits[`${currentPage}:${vector.id}`] || {};
-        const padding = Math.max(12 / zoom, edit.strokeWidth ?? vector.strokeWidth ?? 1);
+        // Thin OCR-derived rules need a forgiving hit target even when the visible stroke is tiny.
+        const padding = Math.max(18 / zoom, edit.strokeWidth ?? vector.strokeWidth ?? 1);
         const x = edit.x ?? vector.x;
         const top = edit.top ?? vector.top;
         const width = edit.width ?? vector.width;
         const height = edit.height ?? vector.height;
-        return point.x >= x - padding && point.x <= x + width + padding && point.top >= top - padding && point.top <= top + height + padding;
+        return (
+          point.x >= x - padding &&
+          point.x <= x + width + padding &&
+          point.top >= top - padding &&
+          point.top <= top + height + padding
+        );
       })
       .sort((a, b) => a.width * a.height - b.width * b.height)[0];
     if (!event.altKey && vectorAtPoint) {
@@ -276,20 +293,32 @@ export function EditorCanvas({ editor }: Props) {
       .map((element) => element.closest<HTMLElement>('[data-graphic-kind][data-graphic-id]'))
       .filter(
         (element, index, elements): element is HTMLElement =>
-          Boolean(element) && elements.indexOf(element) === index,
+          Boolean(element) &&
+          elements.indexOf(element) === index &&
+          !(
+            element?.dataset.graphicKind === 'vector' &&
+            !selectPdfShapes &&
+            pages[currentPage].vectors.find((vector) => vector.id === element.dataset.graphicId)?.ocrRunId
+          ),
       );
     if (!candidates.length || (!event.altKey && target.closest('[contenteditable="true"]'))) return;
     candidates.sort((a, b) => Number(a.dataset.graphicArea) - Number(b.dataset.graphicArea));
     let chosen = candidates[0];
     if (event.altKey) {
-      const keys = candidates.map((candidate) => `${candidate.dataset.graphicKind}:${candidate.dataset.graphicId}`);
+      const keys = candidates.map(
+        (candidate) => `${candidate.dataset.graphicKind}:${candidate.dataset.graphicId}`,
+      );
       const previous = selectionCycleRef.current;
       const same = previous && previous.keys.join('|') === keys.join('|');
       const index = same ? (previous.index + 1) % candidates.length : 0;
       selectionCycleRef.current = { keys, index };
       chosen = candidates[index];
     } else selectionCycleRef.current = null;
-    if (!event.altKey && chosen.dataset.graphicKind === 'image' && !chosen.dataset.graphicId?.startsWith('ocr-image-')) {
+    if (
+      !event.altKey &&
+      chosen.dataset.graphicKind === 'image' &&
+      !chosen.dataset.graphicId?.startsWith('ocr-image-')
+    ) {
       const addedVectors = [
         ...event.currentTarget.querySelectorAll<HTMLElement>('[data-graphic-added="true"]'),
       ].filter((element) => {
@@ -385,7 +414,9 @@ export function EditorCanvas({ editor }: Props) {
         <div className="canvas-selection-status" role="status">
           {selectionType}
           {selectedElements.length > 1 ? ` · ${selectedElements.length} selected` : ''}
-          {selectedElements.some((item) => item.selectionRole === 'related') ? ' · includes related objects' : ''}
+          {selectedElements.some((item) => item.selectionRole === 'related')
+            ? ' · includes related objects'
+            : ''}
         </div>
       )}
       {pdfBytes && panEnabled && (
@@ -526,7 +557,8 @@ export function EditorCanvas({ editor }: Props) {
                   const selectShape = (event: ReactMouseEvent<SVGElement>) => {
                     if (marqueeSuppressClickRef.current) return;
                     if (isLayerObjectLocked({ page: currentPage, kind: 'vector', id: vector.id })) return;
-                    if (formOwnedVector || (!vector.added && !selectPdfShapes)) return;
+                    if (formOwnedVector || ((!vector.added || Boolean(vector.ocrRunId)) && !selectPdfShapes))
+                      return;
                     if (!selectPdfShapes) event.stopPropagation();
                     if (moveShapeContents && !event.shiftKey)
                       setSelectedElements(relatedShapeElements(currentPage, [vector.id]));
@@ -543,7 +575,9 @@ export function EditorCanvas({ editor }: Props) {
                   };
                   const selectableShape = Boolean(
                     !formOwnedVector &&
-                    (vector.added || (selectPdfShapes && !pageBackdrop) || selectedVector),
+                    ((vector.added && (!vector.ocrRunId || selectPdfShapes)) ||
+                      (selectPdfShapes && !pageBackdrop) ||
+                      selectedVector),
                   );
                   const common = {
                     className: selectableShape ? 'editable-vector' : undefined,
@@ -696,7 +730,11 @@ export function EditorCanvas({ editor }: Props) {
                       )}
                       onClick={(event) => {
                         event.stopPropagation();
-                        if (!marqueeSuppressClickRef.current && !isLayerObjectLocked({ page: currentPage, kind: 'image', id: image.id })) selectExistingImage(image, event.shiftKey);
+                        if (
+                          !marqueeSuppressClickRef.current &&
+                          !isLayerObjectLocked({ page: currentPage, kind: 'image', id: image.id })
+                        )
+                          selectExistingImage(image, event.shiftKey);
                       }}
                       style={{
                         left,
@@ -752,7 +790,8 @@ export function EditorCanvas({ editor }: Props) {
                       onClick={(event) => {
                         event.stopPropagation();
                         if (marqueeSuppressClickRef.current) return;
-                        if (isLayerObjectLocked({ page: currentPage, kind: 'added-image', id: image.id })) return;
+                        if (isLayerObjectLocked({ page: currentPage, kind: 'added-image', id: image.id }))
+                          return;
                         updateElementSelection(
                           { page: currentPage, kind: 'added-image', id: image.id },
                           event.shiftKey,
@@ -763,7 +802,8 @@ export function EditorCanvas({ editor }: Props) {
                         setSelectedForm(null);
                       }}
                       onPointerDown={(event) => {
-                        if (isPrimary && event.button === 0 && !(event.target as Element).closest('button')) startImageDrag(event, 'added', image);
+                        if (isPrimary && event.button === 0 && !(event.target as Element).closest('button'))
+                          startImageDrag(event, 'added', image);
                       }}
                       style={{
                         left: image.x * zoom,
@@ -881,7 +921,8 @@ export function EditorCanvas({ editor }: Props) {
                       }}
                       onClick={(event) => {
                         event.stopPropagation();
-                        if (isLayerObjectLocked({ page: currentPage, kind: 'text', id: String(block.id) })) return;
+                        if (isLayerObjectLocked({ page: currentPage, kind: 'text', id: String(block.id) }))
+                          return;
                         selectExistingBlock(block, event.shiftKey);
                       }}
                       onInput={(event) => {
@@ -998,6 +1039,9 @@ export function EditorCanvas({ editor }: Props) {
                       currentPage,
                       imageEdits,
                     );
+                  const cleanupCoversVisible =
+                    !box.ocrRunId ||
+                    ocrRuns.find((run) => run.id === box.ocrRunId)?.cleanupCoversVisible !== false;
                   return (
                     <div
                       key={box.id}
@@ -1013,7 +1057,8 @@ export function EditorCanvas({ editor }: Props) {
                       }}
                       onClick={(event) => {
                         event.stopPropagation();
-                        if (isLayerObjectLocked({ page: currentPage, kind: 'added-text', id: box.id })) return;
+                        if (isLayerObjectLocked({ page: currentPage, kind: 'added-text', id: box.id }))
+                          return;
                         updateElementSelection(
                           { page: currentPage, kind: 'added-text', id: box.id },
                           event.shiftKey,
@@ -1032,6 +1077,7 @@ export function EditorCanvas({ editor }: Props) {
                       }}
                     >
                       {box.ocrSource &&
+                        cleanupCoversVisible &&
                         !sourceScanDeleted &&
                         ocrCoverRects(box, pages[currentPage].vectors, vectorEdits).map((piece, index) => (
                           <span

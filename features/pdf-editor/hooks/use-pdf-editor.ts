@@ -156,6 +156,7 @@ export function usePdfEditor() {
     objectMetadata,
     setObjectMetadata,
     ocrRuns,
+    setOcrRuns,
     selectedVectorId,
     setSelectedVectorId,
     selectPdfShapes,
@@ -346,30 +347,61 @@ export function usePdfEditor() {
       (draw) => draw.kind === 'text' && !draw.deleted && draw.text?.trim(),
     );
     const editableFields = Object.values({ ...xfaFields, ...xfaStructureEdits }).filter(
-      (field) => !field.deleted && ['text', 'multiline', 'numeric', 'decimal', 'date', 'choice', 'checkbox', 'radio'].includes(field.kind),
+      (field) =>
+        !field.deleted &&
+        ['text', 'multiline', 'numeric', 'decimal', 'date', 'choice', 'checkbox', 'radio'].includes(
+          field.kind,
+        ),
     );
     const editablePages = session.pages.map((page, pageIndex) => ({
       ...page,
       blocks: [
         ...page.blocks,
-        ...editableDraws.filter((draw) => draw.page === pageIndex).map((draw, index) => ({
-          id: 1_000_000 + index, str: draw.text || '', x: draw.x, top: draw.top,
-          width: draw.width, height: draw.height, fontSize: draw.size || 11,
-          baseline: draw.top + (draw.size || 11), editorTop: draw.top, horizontalScale: 1,
-          font: draw.font || 'Helvetica', sourceFont: draw.font || 'Helvetica',
-          cssFont: draw.font || 'Helvetica', letterSpacing: 0, bold: Boolean(draw.bold), italic: Boolean(draw.italic),
-        })),
+        ...editableDraws
+          .filter((draw) => draw.page === pageIndex)
+          .map((draw, index) => ({
+            id: 1_000_000 + index,
+            str: draw.text || '',
+            x: draw.x,
+            top: draw.top,
+            width: draw.width,
+            height: draw.height,
+            fontSize: draw.size || 11,
+            baseline: draw.top + (draw.size || 11),
+            editorTop: draw.top,
+            horizontalScale: 1,
+            font: draw.font || 'Helvetica',
+            sourceFont: draw.font || 'Helvetica',
+            cssFont: draw.font || 'Helvetica',
+            letterSpacing: 0,
+            bold: Boolean(draw.bold),
+            italic: Boolean(draw.italic),
+          })),
       ],
       forms: [
         ...page.forms,
-        ...editableFields.filter((field) => field.page === pageIndex).map((field) => ({
-          id: `xfa-static:${field.key}`, name: field.name,
-          kind: (field.kind === 'checkbox' || field.kind === 'radio' || field.kind === 'choice' ? field.kind : 'text') as FormBlock['kind'],
-          x: field.x, top: field.top, width: field.width, height: field.height,
-          value: field.value ?? '', multiline: field.kind === 'multiline', fontSize: field.size,
-          font: field.font, color: field.color, backgroundColor: field.backgroundColor,
-          borderColor: field.borderColor, borderWidth: field.borderWidth, alignment: field.alignment,
-        })),
+        ...editableFields
+          .filter((field) => field.page === pageIndex)
+          .map((field) => ({
+            id: `xfa-static:${field.key}`,
+            name: field.name,
+            kind: (field.kind === 'checkbox' || field.kind === 'radio' || field.kind === 'choice'
+              ? field.kind
+              : 'text') as FormBlock['kind'],
+            x: field.x,
+            top: field.top,
+            width: field.width,
+            height: field.height,
+            value: field.value ?? '',
+            multiline: field.kind === 'multiline',
+            fontSize: field.size,
+            font: field.font,
+            color: field.color,
+            backgroundColor: field.backgroundColor,
+            borderColor: field.borderColor,
+            borderWidth: field.borderWidth,
+            alignment: field.alignment,
+          })),
       ],
     }));
     session.pages = editablePages;
@@ -406,8 +438,7 @@ export function usePdfEditor() {
         if (embeddedFallback) {
           nextBytes = sourceBytes.slice();
           useOriginalFallbackRenderer = true;
-        }
-        else {
+        } else {
           nextBytes = await createRenderedFallback();
           generatedFromXfaPages = true;
         }
@@ -838,8 +869,7 @@ export function usePdfEditor() {
       ...metadata,
       [key]: { ...metadata[key], locked: willLock },
     }));
-    if (willLock)
-      setSelectedElements((items) => items.filter((entry) => selectedElementKey(entry) !== key));
+    if (willLock) setSelectedElements((items) => items.filter((entry) => selectedElementKey(entry) !== key));
   };
 
   const isLayerObjectLocked = (item: SelectedElementRef) =>
@@ -1000,23 +1030,60 @@ export function usePdfEditor() {
     }
   };
 
+  const toggleOcrCleanupCovers = (run: OcrRun) => {
+    recordHistory();
+    setOcrRuns((runs) =>
+      runs.map((entry) =>
+        entry.id === run.id
+          ? { ...entry, cleanupCoversVisible: entry.cleanupCoversVisible === false }
+          : entry,
+      ),
+    );
+  };
+
+  const reorderLayerObject = (item: SelectedElementRef, direction: -1 | 1) => {
+    const move = <T extends { id: string }>(items: T[]) => {
+      const index = items.findIndex((entry) => entry.id === item.id);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= items.length) return items;
+      const next = [...items];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    };
+    recordHistory();
+    if (item.kind === 'added-text') setAddedBoxes(move);
+    else if (item.kind === 'added-image') setAddedImages(move);
+    else if (
+      item.kind === 'vector' &&
+      pages[item.page]?.vectors.some((entry) => entry.id === item.id && (entry.added || entry.ocrRunId))
+    )
+      setPages((allPages) =>
+        allPages.map((page, index) =>
+          index === item.page ? { ...page, vectors: move(page.vectors) } : page,
+        ),
+      );
+    else if (
+      item.kind === 'image' &&
+      pages[item.page]?.images.some((entry) => entry.id === item.id && entry.ocrRunId)
+    )
+      setPages((allPages) =>
+        allPages.map((page, index) => (index === item.page ? { ...page, images: move(page.images) } : page)),
+      );
+  };
+
   const hideOcrSourceScan = (run: OcrRun) => {
     const page = pages[run.page];
     if (!page) return;
-    const source = page.images
-      .filter((image) => !image.ocrRunId)
-      .sort((a, b) => b.width * b.height - a.width * a.height)[0];
+    const source = run.sourceImageId
+      ? page.images.find((image) => image.id === run.sourceImageId)
+      : page.images
+          .filter((image) => !image.ocrRunId)
+          .sort((a, b) => b.width * b.height - a.width * a.height)[0];
     if (!source || source.width * source.height < page.width * page.height * 0.6) {
       setToast('No full-page source scan was detected');
       setToastCanUndo(false);
       return;
     }
-    if (
-      !window.confirm(
-        `Hide the source scan and keep ${run.textIds.length} text boxes, ${run.vectorIds.length} shapes, and ${run.imageIds.length} images?`,
-      )
-    )
-      return;
     recordHistory();
     setImageEdits((changes) => ({
       ...changes,
@@ -1035,7 +1102,10 @@ export function usePdfEditor() {
         const serialized = await pdfRef.current.saveDocument();
         if ((await readNativeXfaPackets(serialized)).length) originalBytes = serialized;
       } catch (reason) {
-        console.warn('Current XFA values could not be serialized for XML inspection; using the opened PDF.', reason);
+        console.warn(
+          'Current XFA values could not be serialized for XML inspection; using the opened PDF.',
+          reason,
+        );
       }
     }
     const templateEdits = Object.values(xfaStructureEdits);
@@ -1343,6 +1413,8 @@ export function usePdfEditor() {
     toggleLayerObjectVisibility,
     deleteLayerObject,
     toggleOcrRunCategory,
+    toggleOcrCleanupCovers,
+    reorderLayerObject,
     hideOcrSourceScan,
     runOcr,
     startOcrRegionSelection,

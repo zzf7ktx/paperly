@@ -43,6 +43,7 @@ type Context = Pick<
   | 'formBackgrounds'
   | 'addedBoxes'
   | 'addedImages'
+  | 'ocrRuns'
   | 'imageEdits'
   | 'vectorEdits'
   | 'imageCaptures'
@@ -77,6 +78,7 @@ export async function exportDocument(
     formBackgrounds,
     addedBoxes,
     addedImages,
+    ocrRuns,
     imageEdits,
     vectorEdits,
     imageCaptures,
@@ -879,6 +881,7 @@ export async function exportDocument(
       const page = pdfDocument.getPage(box.page);
       if (
         box.ocrSource &&
+        (!box.ocrRunId || ocrRuns.find((run) => run.id === box.ocrRunId)?.cleanupCoversVisible !== false) &&
         !areaOverlapsDeletedImage(
           {
             x: box.ocrOriginalX ?? box.x,

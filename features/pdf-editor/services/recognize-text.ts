@@ -364,6 +364,11 @@ export async function recognizeText(
     const originTop = region?.top || 0;
     const stamp = Date.now();
     const ocrRunId = `ocr-run-${currentPage}-${stamp}`;
+    const sourceImageId = pageInfo.images
+      .filter(
+        (image) => !image.ocrRunId && image.width * image.height >= pageInfo.width * pageInfo.height * 0.6,
+      )
+      .sort((a, b) => b.width * b.height - a.width * a.height)[0]?.id;
     const detectedImages = imageRegions.map((box, index) => ({
       id: `ocr-image-${stamp}-${index}`,
       x: originX + box.x0 / renderScale,
@@ -397,15 +402,22 @@ export async function recognizeText(
       )
       .map((image) => ({ ...image, dataUrl: captures[`${currentPage}:${image.id}`] }));
     const detectedVectors = ocrRecognizeLayout
-      ? detectScannedLines(source, renderScale, originX, originTop, stamp).filter(
-          (vector) =>
-            !detectedImages.some((image) =>
-              insideOcrImage(
-                { x0: vector.x, y0: vector.top, x1: vector.x + vector.width, y1: vector.top + vector.height },
-                { x0: image.x, y0: image.top, x1: image.x + image.width, y1: image.top + image.height },
+      ? detectScannedLines(source, renderScale, originX, originTop, stamp)
+          .filter(
+            (vector) =>
+              !detectedImages.some((image) =>
+                insideOcrImage(
+                  {
+                    x0: vector.x,
+                    y0: vector.top,
+                    x1: vector.x + vector.width,
+                    y1: vector.top + vector.height,
+                  },
+                  { x0: image.x, y0: image.top, x1: image.x + image.width, y1: image.top + image.height },
+                ),
               ),
-            ),
-        ).map((vector) => ({ ...vector, ocrRunId }))
+          )
+          .map((vector) => ({ ...vector, ocrRunId }))
       : [];
     const detectedRectangles = detectedVectors.filter((vector) => vector.kind === 'rectangle');
     const ocrMeasureContext = document.createElement('canvas').getContext('2d');
@@ -545,7 +557,9 @@ export async function recognizeText(
         textIds: boxes.map((box) => box.id),
         vectorIds: detectedVectors.map((vector) => vector.id),
         imageIds: newImages.map((image) => image.id),
+        sourceImageId,
         cleanupCoverCount: boxes.length,
+        cleanupCoversVisible: true,
       },
     ]);
     const refs: SelectedElementRef[] = [

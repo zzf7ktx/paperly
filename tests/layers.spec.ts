@@ -15,7 +15,7 @@ test('layers panel identifies, hides, and restores original PDF objects', async 
   await imageRow.locator('.layer-main').click();
   await expect(page.locator('.canvas-selection-status')).toContainText('PDF image');
 
-  await imageRow.locator('.layer-actions button').first().click();
+  await imageRow.getByRole('button', { name: 'Hide PDF image' }).click();
   await expect(page.locator('.pdf-image-box.is-deleted')).toHaveCount(1);
   await expect(page.locator('.action-toast')).toContainText('1 original image hidden');
 
