@@ -19,6 +19,7 @@ import { selectedElementKey } from '../lib/text';
 import type { PdfEditorController } from '../hooks/use-pdf-editor';
 
 type Props = {
+  onShowLayers?: () => void;
   editor: Pick<
     PdfEditorController,
     | 'repeatDataFileRef'
@@ -168,7 +169,7 @@ type Props = {
   >;
 };
 
-export function PropertiesPanel({ editor }: Props) {
+export function PropertiesPanel({ editor, onShowLayers }: Props) {
   const {
     repeatDataFileRef,
     fontUploadRef,
@@ -289,6 +290,7 @@ export function PropertiesPanel({ editor }: Props) {
                           : 'Properties'}
         </strong>
         <div className="property-head-actions">
+          {!rightPanelCollapsed && onShowLayers && <button onClick={onShowLayers}>Layers</button>}
           {!rightPanelCollapsed && (
             <button
               onClick={() => {
@@ -1357,12 +1359,12 @@ export function PropertiesPanel({ editor }: Props) {
                     className={activeImageEdit?.deleted ? 'restore-box' : 'delete-box'}
                     onClick={() => toggleExistingImageDeleted(activeImageKey)}
                   >
-                    {activeImageEdit?.deleted ? 'Restore existing image' : 'Delete existing image'}
+                    {activeImageEdit?.deleted ? 'Restore original image' : 'Hide original image'}
                   </button>
                 )}
                 {activeAddedImage && (
                   <button className="delete-box" onClick={() => removeAddedImage(activeAddedImage.id)}>
-                    Delete image
+                    Delete added image
                   </button>
                 )}
               </section>

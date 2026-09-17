@@ -3,6 +3,7 @@ import { EditorCanvas } from './components/editor-canvas';
 import { EditorToolbar } from './components/editor-toolbar';
 import { PageRail } from './components/page-rail';
 import { PropertiesPanel } from './components/properties-panel';
+import { LayersPanel } from './components/layers-panel';
 import { XfaXmlDialog } from './components/xfa-xml-dialog';
 import './components/xfa-xml-dialog.css';
 
@@ -71,6 +72,7 @@ export default function PdfEditor() {
   const [motionEnabled, setMotionEnabled] = useState(true);
   const [updateDownloadDirectory, setUpdateDownloadDirectory] = useState<string | null>(null);
   const [nativeUpdaterAvailable, setNativeUpdaterAvailable] = useState(false);
+  const [rightPanelView, setRightPanelView] = useState<'properties' | 'layers'>('properties');
   const {
     uploadRef,
     documentTabs,
@@ -105,6 +107,9 @@ export default function PdfEditor() {
     error,
     setError,
     toast,
+    setToast,
+    toastCanUndo,
+    setToastCanUndo,
     leftPanelWidth,
     setLeftPanelWidth,
     rightPanelWidth,
@@ -816,15 +821,18 @@ export default function PdfEditor() {
           }}
         />
 
-        <PropertiesPanel editor={editor} />
+        {rightPanelView === 'layers' ? (
+          <LayersPanel editor={editor} onShowProperties={() => setRightPanelView('properties')} />
+        ) : (
+          <PropertiesPanel editor={editor} onShowLayers={() => setRightPanelView('layers')} />
+        )}
       </section>
       <div className={`status-pill ${error ? 'error' : ''}`}>
         <span />{' '}
         {error ||
           (loading
             ? 'Working on your document…'
-            : toast ||
-              (tool === 'add-xfa'
+            : tool === 'add-xfa'
                 ? `Click the page to place a native ${xfaAddKind} XFA field`
                 : tool === 'add-text'
                   ? `Click the page to place a text box · ${snapEnabled ? `${snapAnchor} by ${snapMode}` : 'Snap off'}`
@@ -832,8 +840,17 @@ export default function PdfEditor() {
                     ? isXfaDocument
                       ? `XFA form · ${xfaChanged ? 'Unsaved field changes' : 'Ready to fill and export'}`
                       : `${xfaViewMode === 'fallback' ? 'Fallback PDF · ' : ''}${Object.keys(edits).length + addedBoxes.length} change${Object.keys(edits).length + addedBoxes.length === 1 ? '' : 's'} · ${addedBoxes.length} added text box${addedBoxes.length === 1 ? '' : 'es'}`
-                    : 'Text editing preview · Open your own PDF'))}
+                    : 'Text editing preview · Open your own PDF')}
       </div>
+      {toast && (
+        <div className="action-toast" role="status">
+          <span>{toast}</span>
+          {toastCanUndo && (
+            <button onClick={() => { undo(); setToast(''); setToastCanUndo(false); }}>Undo</button>
+          )}
+          <button aria-label="Dismiss notification" onClick={() => { setToast(''); setToastCanUndo(false); }}>×</button>
+        </div>
+      )}
       {loading && (
         <div className="loading-overlay" role="status">
           <div className="loader" />

@@ -53,6 +53,8 @@ export type FormBlock = {
   sharedField?: boolean;
   backdrop?: FormBackdrop;
   labelBlockId?: number;
+  objectName?: string;
+  locked?: boolean;
 };
 
 export type FormBackdropPrimitive = {
@@ -81,6 +83,10 @@ export type ImageBlock = {
   height: number;
   sourceName?: string;
   dataUrl?: string;
+  objectName?: string;
+  locked?: boolean;
+  hidden?: boolean;
+  ocrRunId?: string;
 };
 
 export type AddedImage = ImageBlock & { page: number; dataUrl: string; name: string };
@@ -112,6 +118,10 @@ export type VectorBlock = {
   opacity?: number;
   points?: VectorPoint[];
   added?: boolean;
+  objectName?: string;
+  locked?: boolean;
+  hidden?: boolean;
+  ocrRunId?: string;
 };
 
 export type VectorEdit = Partial<Omit<VectorBlock, 'id' | 'kind'>> & { deleted?: boolean };
@@ -213,6 +223,26 @@ export type AddedTextBox = {
   ocrOriginalWidth?: number;
   ocrOriginalHeight?: number;
   ocrBackgroundImage?: string;
+  objectName?: string;
+  locked?: boolean;
+  hidden?: boolean;
+  ocrRunId?: string;
+};
+
+export type OcrRun = {
+  id: string;
+  page: number;
+  createdAt: number;
+  region: { x: number; top: number; width: number; height: number };
+  textIds: string[];
+  vectorIds: string[];
+  imageIds: string[];
+  cleanupCoverCount: number;
+};
+
+export type ObjectMetadata = {
+  name?: string;
+  locked?: boolean;
 };
 
 export type EditableTextGeometry = {
@@ -257,6 +287,8 @@ export type EditorHistorySnapshot = {
   addedImages: AddedImage[];
   imageEdits: Record<string, ImageEdit>;
   vectorEdits: Record<string, VectorEdit>;
+  objectMetadata?: Record<string, ObjectMetadata>;
+  ocrRuns?: OcrRun[];
   xfaStructureEdits: Record<string, XfaTemplateEdit>;
   xfaDrawEdits: Record<string, XfaDrawEdit>;
   xfaChanged: boolean;
@@ -268,6 +300,7 @@ export type SelectedElementRef = {
   page: number;
   kind: 'text' | 'form' | 'image' | 'added-text' | 'added-image' | 'vector';
   id: string;
+  selectionRole?: 'direct' | 'related';
 };
 
 export type DocumentSession = {
@@ -303,6 +336,8 @@ export type DocumentSession = {
   addedImages: AddedImage[];
   imageEdits: Record<string, ImageEdit>;
   vectorEdits: Record<string, VectorEdit>;
+  objectMetadata: Record<string, ObjectMetadata>;
+  ocrRuns: OcrRun[];
   imageCaptures: Record<string, string>;
   blockVisuals: Record<string, { background: string; color: string }>;
   fontWarnings: FontWarning[];

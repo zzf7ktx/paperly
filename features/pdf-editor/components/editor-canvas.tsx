@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, type CSSProperties, type MouseEvent as ReactMouseEvent, useEffect, useState } from 'react';
+import { Fragment, type CSSProperties, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react';
 import { DemoDocument } from './demo-document';
 import { FormBackdropLayer } from './form-backdrop-layer';
 import { TextBoxControls } from './text-box-controls';
@@ -45,6 +45,7 @@ type Props = {
     | 'edits'
     | 'selected'
     | 'setSelected'
+    | 'selectedElements'
     | 'setSelectedElements'
     | 'selectionMarquee'
     | 'selectedForm'
@@ -86,6 +87,7 @@ type Props = {
     | 'relatedShapeElements'
     | 'vectorBackgroundForText'
     | 'updateElementSelection'
+    | 'isLayerObjectLocked'
     | 'commit'
     | 'selectExistingBlock'
     | 'measureAddedBox'
@@ -148,6 +150,7 @@ export function EditorCanvas({ editor }: Props) {
     edits,
     selected,
     setSelected,
+    selectedElements,
     setSelectedElements,
     selectionMarquee,
     selectedForm,
@@ -189,6 +192,7 @@ export function EditorCanvas({ editor }: Props) {
     relatedShapeElements,
     vectorBackgroundForText,
     updateElementSelection,
+    isLayerObjectLocked,
     commit,
     selectExistingBlock,
     measureAddedBox,
@@ -227,6 +231,7 @@ export function EditorCanvas({ editor }: Props) {
     zoomCanvasWithWheel,
   } = editor;
   const [canvasDraftVector, setCanvasDraftVector] = useState(draftVector);
+  const selectionCycleRef = useRef<{ keys: string[]; index: number } | null>(null);
 
   useEffect(() => {
     const updateDraft = (event: Event) =>
@@ -238,6 +243,34 @@ export function EditorCanvas({ editor }: Props) {
     if (tool !== 'select' || panEnabled || marqueeSuppressClickRef.current) return;
     const target = event.target as Element;
     if (target.closest('button,.pdf-form-control,.xfaLayer,.xfa-edit-layer')) return;
+    const pageBounds = event.currentTarget.getBoundingClientRect();
+    const point = {
+      x: (event.clientX - pageBounds.left) / zoom,
+      top: (event.clientY - pageBounds.top) / zoom,
+    };
+    const vectorAtPoint = pages[currentPage].vectors
+      .filter((vector) => {
+        if (!vector.added || vector.hidden || vectorEdits[`${currentPage}:${vector.id}`]?.deleted) return false;
+        const edit = vectorEdits[`${currentPage}:${vector.id}`] || {};
+        const padding = Math.max(12 / zoom, edit.strokeWidth ?? vector.strokeWidth ?? 1);
+        const x = edit.x ?? vector.x;
+        const top = edit.top ?? vector.top;
+        const width = edit.width ?? vector.width;
+        const height = edit.height ?? vector.height;
+        return point.x >= x - padding && point.x <= x + width + padding && point.top >= top - padding && point.top <= top + height + padding;
+      })
+      .sort((a, b) => a.width * a.height - b.width * b.height)[0];
+    if (!event.altKey && vectorAtPoint) {
+      event.preventDefault();
+      event.stopPropagation();
+      updateElementSelection({ page: currentPage, kind: 'vector', id: vectorAtPoint.id }, event.shiftKey);
+      setSelectedVectorId(vectorAtPoint.id);
+      setSelected(null);
+      setSelectedForm(null);
+      setSelectedAddedId(null);
+      setSelectedImage(null);
+      return;
+    }
     const candidates = document
       .elementsFromPoint(event.clientX, event.clientY)
       .map((element) => element.closest<HTMLElement>('[data-graphic-kind][data-graphic-id]'))
@@ -245,11 +278,18 @@ export function EditorCanvas({ editor }: Props) {
         (element, index, elements): element is HTMLElement =>
           Boolean(element) && elements.indexOf(element) === index,
       );
-    if (!candidates.length || target.closest('[contenteditable="true"]')) return;
-    let chosen = candidates.reduce((smallest, candidate) =>
-      Number(candidate.dataset.graphicArea) < Number(smallest.dataset.graphicArea) ? candidate : smallest,
-    );
-    if (chosen.dataset.graphicKind === 'image' && !chosen.dataset.graphicId?.startsWith('ocr-image-')) {
+    if (!candidates.length || (!event.altKey && target.closest('[contenteditable="true"]'))) return;
+    candidates.sort((a, b) => Number(a.dataset.graphicArea) - Number(b.dataset.graphicArea));
+    let chosen = candidates[0];
+    if (event.altKey) {
+      const keys = candidates.map((candidate) => `${candidate.dataset.graphicKind}:${candidate.dataset.graphicId}`);
+      const previous = selectionCycleRef.current;
+      const same = previous && previous.keys.join('|') === keys.join('|');
+      const index = same ? (previous.index + 1) % candidates.length : 0;
+      selectionCycleRef.current = { keys, index };
+      chosen = candidates[index];
+    } else selectionCycleRef.current = null;
+    if (!event.altKey && chosen.dataset.graphicKind === 'image' && !chosen.dataset.graphicId?.startsWith('ocr-image-')) {
       const addedVectors = [
         ...event.currentTarget.querySelectorAll<HTMLElement>('[data-graphic-added="true"]'),
       ].filter((element) => {
@@ -268,6 +308,8 @@ export function EditorCanvas({ editor }: Props) {
     }
     const kind = chosen.dataset.graphicKind;
     const id = chosen.dataset.graphicId!;
+    const itemKind = kind as 'text' | 'image' | 'vector' | 'added-text' | 'added-image';
+    if (isLayerObjectLocked({ page: currentPage, kind: itemKind, id })) return;
     event.preventDefault();
     event.stopPropagation();
     if (kind === 'vector') {
@@ -287,6 +329,19 @@ export function EditorCanvas({ editor }: Props) {
       if (image) selectExistingImage(image, event.shiftKey);
       return;
     }
+    if (kind === 'text') {
+      const block = pages[currentPage].blocks.find((entry) => String(entry.id) === id);
+      if (block) selectExistingBlock(block, event.shiftKey);
+      return;
+    }
+    if (kind === 'added-text') {
+      updateElementSelection({ page: currentPage, kind: 'added-text', id }, event.shiftKey);
+      setSelectedAddedId(id);
+      setSelected(null);
+      setSelectedForm(null);
+      setSelectedImage(null);
+      return;
+    }
     const image = addedImages.find((entry) => entry.page === currentPage && entry.id === id);
     if (!image) return;
     updateElementSelection({ page: currentPage, kind: 'added-image', id }, event.shiftKey);
@@ -295,6 +350,27 @@ export function EditorCanvas({ editor }: Props) {
     setSelectedAddedId(null);
     setSelectedForm(null);
   };
+  const primarySelection =
+    selectedElements.find((item) => item.selectionRole === 'direct') || selectedElements[0];
+  const selectionType = (() => {
+    if (!primarySelection) return '';
+    if (primarySelection.kind === 'added-text') {
+      return addedBoxes.find((item) => item.id === primarySelection.id)?.ocrRunId ? 'OCR text' : 'Text box';
+    }
+    if (primarySelection.kind === 'added-image') return 'Added image';
+    if (primarySelection.kind === 'image') {
+      return pages[primarySelection.page]?.images.find((item) => item.id === primarySelection.id)?.ocrRunId
+        ? 'OCR image'
+        : 'PDF image';
+    }
+    if (primarySelection.kind === 'vector') {
+      return pages[primarySelection.page]?.vectors.find((item) => item.id === primarySelection.id)?.ocrRunId
+        ? 'OCR shape'
+        : 'PDF shape';
+    }
+    if (primarySelection.kind === 'form') return 'Form field';
+    return 'PDF text';
+  })();
   return (
     <div
       ref={canvasWrapRef}
@@ -305,6 +381,13 @@ export function EditorCanvas({ editor }: Props) {
       onPointerCancel={stopCanvasPan}
       onWheel={zoomCanvasWithWheel}
     >
+      {primarySelection && (
+        <div className="canvas-selection-status" role="status">
+          {selectionType}
+          {selectedElements.length > 1 ? ` · ${selectedElements.length} selected` : ''}
+          {selectedElements.some((item) => item.selectionRole === 'related') ? ' · includes related objects' : ''}
+        </div>
+      )}
       {pdfBytes && panEnabled && (
         <div className="canvas-pan-hint" role="status">
           <span>
@@ -362,6 +445,7 @@ export function EditorCanvas({ editor }: Props) {
               aria-label="Editable vector shapes"
             >
               {pages[currentPage].vectors.map((vector) => {
+                if (vector.hidden) return null;
                 if (isFormOwnedVector(currentPage, vector)) return null;
                 const edit = vectorEdits[`${currentPage}:${vector.id}`] || {};
                 const changed = !vector.added && Object.keys(edit).some((property) => property !== 'deleted');
@@ -421,7 +505,7 @@ export function EditorCanvas({ editor }: Props) {
                 (vector) => {
                   const key = `${currentPage}:${vector.id}`;
                   const edit = vectorEdits[key] || {};
-                  if (edit.deleted) return null;
+                  if (edit.deleted || vector.hidden) return null;
                   const x = edit.x ?? vector.x;
                   const top = edit.top ?? vector.top;
                   const width = edit.width ?? vector.width;
@@ -441,6 +525,7 @@ export function EditorCanvas({ editor }: Props) {
                   const formOwnedVector = isFormOwnedVector(currentPage, vector);
                   const selectShape = (event: ReactMouseEvent<SVGElement>) => {
                     if (marqueeSuppressClickRef.current) return;
+                    if (isLayerObjectLocked({ page: currentPage, kind: 'vector', id: vector.id })) return;
                     if (formOwnedVector || (!vector.added && !selectPdfShapes)) return;
                     if (!selectPdfShapes) event.stopPropagation();
                     if (moveShapeContents && !event.shiftKey)
@@ -565,6 +650,8 @@ export function EditorCanvas({ editor }: Props) {
             )}
             <div className="image-layer" aria-label={`Images on page ${currentPage + 1}`}>
               {pages[currentPage].images.map((image) => {
+                if (image.hidden) return null;
+                if (image.hidden) return null;
                 const key = `${currentPage}:${image.id}`;
                 const edit = imageEdits[key];
                 const changed =
@@ -609,7 +696,7 @@ export function EditorCanvas({ editor }: Props) {
                       )}
                       onClick={(event) => {
                         event.stopPropagation();
-                        if (!marqueeSuppressClickRef.current) selectExistingImage(image, event.shiftKey);
+                        if (!marqueeSuppressClickRef.current && !isLayerObjectLocked({ page: currentPage, kind: 'image', id: image.id })) selectExistingImage(image, event.shiftKey);
                       }}
                       style={{
                         left,
@@ -651,7 +738,7 @@ export function EditorCanvas({ editor }: Props) {
                 );
               })}
               {addedImages
-                .filter((image) => image.page === currentPage)
+                .filter((image) => image.page === currentPage && !image.hidden)
                 .map((image) => {
                   const isPrimary = selectedImage?.kind === 'added' && selectedImage.id === image.id;
                   const isSelected = isPrimary || isElementSelected('added-image', image.id);
@@ -665,6 +752,7 @@ export function EditorCanvas({ editor }: Props) {
                       onClick={(event) => {
                         event.stopPropagation();
                         if (marqueeSuppressClickRef.current) return;
+                        if (isLayerObjectLocked({ page: currentPage, kind: 'added-image', id: image.id })) return;
                         updateElementSelection(
                           { page: currentPage, kind: 'added-image', id: image.id },
                           event.shiftKey,
@@ -673,6 +761,9 @@ export function EditorCanvas({ editor }: Props) {
                         setSelected(null);
                         setSelectedAddedId(null);
                         setSelectedForm(null);
+                      }}
+                      onPointerDown={(event) => {
+                        if (isPrimary && event.button === 0 && !(event.target as Element).closest('button')) startImageDrag(event, 'added', image);
                       }}
                       style={{
                         left: image.x * zoom,
@@ -761,6 +852,9 @@ export function EditorCanvas({ editor }: Props) {
                   <Fragment key={block.id}>
                     <span
                       className={`text-block ${isSelected ? 'is-selected' : ''} ${isLinkedFormLabel ? 'is-form-linked-label' : ''} ${hasRenderedEdit ? 'is-edited' : ''} ${geometryChanged ? 'is-moved' : ''} ${edit?.deleted ? 'is-deleted' : ''}`}
+                      data-graphic-kind="text"
+                      data-graphic-id={String(block.id)}
+                      data-graphic-area={Math.max(visualWidth * visualHeight, 1)}
                       contentEditable={!edit?.deleted}
                       suppressContentEditableWarning
                       spellCheck
@@ -787,6 +881,7 @@ export function EditorCanvas({ editor }: Props) {
                       }}
                       onClick={(event) => {
                         event.stopPropagation();
+                        if (isLayerObjectLocked({ page: currentPage, kind: 'text', id: String(block.id) })) return;
                         selectExistingBlock(block, event.shiftKey);
                       }}
                       onInput={(event) => {
@@ -886,7 +981,7 @@ export function EditorCanvas({ editor }: Props) {
             )}
             <div className="added-text-layer">
               {addedBoxes
-                .filter((box) => box.page === currentPage)
+                .filter((box) => box.page === currentPage && !box.hidden)
                 .map((box) => {
                   const isPrimary = selectedAddedId === box.id;
                   const isSelected = isPrimary || isElementSelected('added-text', box.id);
@@ -907,6 +1002,9 @@ export function EditorCanvas({ editor }: Props) {
                     <div
                       key={box.id}
                       className={`added-text-box ${box.ocrSource ? 'ocr-text-box' : ''} ${(box.ocrConfidence ?? 100) < ocrConfidenceThreshold ? 'low-confidence' : ''} ${isSelected ? 'is-selected' : ''}`}
+                      data-graphic-kind="added-text"
+                      data-graphic-id={box.id}
+                      data-graphic-area={Math.max(box.width * box.height, 1)}
                       onPointerDown={(event) => {
                         if (event.shiftKey) {
                           event.preventDefault();
@@ -915,6 +1013,7 @@ export function EditorCanvas({ editor }: Props) {
                       }}
                       onClick={(event) => {
                         event.stopPropagation();
+                        if (isLayerObjectLocked({ page: currentPage, kind: 'added-text', id: box.id })) return;
                         updateElementSelection(
                           { page: currentPage, kind: 'added-text', id: box.id },
                           event.shiftKey,
@@ -1087,7 +1186,10 @@ export function EditorCanvas({ editor }: Props) {
                 const isSelected = isPrimary || isElementSelected('form', field.id);
                 const key = `${currentPage}:${field.id}`;
                 const edit = formEdits[key] || {};
-                const selectField = (additive = false) => selectNormalForm(field, additive);
+                const selectField = (additive = false) => {
+                  if (isLayerObjectLocked({ page: currentPage, kind: 'form', id: field.id })) return;
+                  selectNormalForm(field, additive);
+                };
                 const maskOriginal = needsFormCleanup(field, edit);
                 const geometryStyle: CSSProperties = {
                   left: (edit.x ?? field.x) * zoom,

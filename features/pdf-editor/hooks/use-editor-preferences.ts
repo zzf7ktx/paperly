@@ -54,6 +54,8 @@ type Context = Pick<
   | 'deleteVectorRef'
   | 'selectedXfaKey'
   | 'selectedXfaDrawKey'
+  | 'setSelectedXfaKey'
+  | 'setSelectedXfaDrawKey'
   | 'setSelectedElements'
   | 'selected'
   | 'selectedForm'
@@ -122,6 +124,8 @@ export function useEditorPreferences({
   deleteVectorRef,
   selectedXfaKey,
   selectedXfaDrawKey,
+  setSelectedXfaKey,
+  setSelectedXfaDrawKey,
   setSelectedElements,
   selected,
   selectedForm,
@@ -264,6 +268,18 @@ export function useEditorPreferences({
         setTool('select');
         return;
       }
+      if (!isEditing && event.key === 'Escape') {
+        event.preventDefault();
+        setSelectedElements([]);
+        setSelected(null);
+        setSelectedForm(null);
+        setSelectedAddedId(null);
+        setSelectedImage(null);
+        setSelectedVectorId(null);
+        setSelectedXfaKey(null);
+        setSelectedXfaDrawKey(null);
+        return;
+      }
       if (
         isEditing ||
         (event.key !== 'Delete' && event.key !== 'Backspace') ||
@@ -276,7 +292,7 @@ export function useEditorPreferences({
     };
     window.addEventListener('keydown', keyDown);
     return () => window.removeEventListener('keydown', keyDown);
-  }, [selectedElements.length, selectedVectorId, setDraftVector, setOcrRegion, setTool, tool]);
+  }, [selectedElements.length, selectedVectorId, setDraftVector, setOcrRegion, setSelected, setSelectedAddedId, setSelectedElements, setSelectedForm, setSelectedImage, setSelectedVectorId, setSelectedXfaDrawKey, setSelectedXfaKey, setTool, tool]);
 
   useEffect(() => {
     if (selectedXfaKey || selectedXfaDrawKey) setSelectedElements([]);

@@ -226,6 +226,7 @@ export function useEditorSelection({
         deleted: edit.deleted,
       };
     };
+    const seedSet = new Set(seedIds);
     const selectedIds = new Set(seedIds);
     const candidates = page.vectors
       .map(geometry)
@@ -269,6 +270,7 @@ export function useEditorSelection({
       page: pageIndex,
       kind: 'vector',
       id: entry.vector.id,
+      selectionRole: seedSet.has(entry.vector.id) ? 'direct' : 'related',
     }));
     if (moveShapeContents && selectedGeometry.length) {
       const left = Math.min(...selectedGeometry.map((entry) => entry.x));
@@ -288,7 +290,7 @@ export function useEditorSelection({
           centerY >= top - 1 &&
           centerY <= bottom + 1
         )
-          refs.push({ page: pageIndex, kind: 'text', id: String(block.id) });
+          refs.push({ page: pageIndex, kind: 'text', id: String(block.id), selectionRole: 'related' });
       });
     }
     return refs;
@@ -332,8 +334,9 @@ export function useEditorSelection({
     ]),
   );
   const updateElementSelection = (item: SelectedElementRef, additive = false) => {
+    const directItem = { ...item, selectionRole: 'direct' as const };
     setSelectedElements((current) => {
-      if (!additive) return [item];
+      if (!additive) return [directItem];
       const exists = current.some(
         (entry) => entry.page === item.page && entry.kind === item.kind && entry.id === item.id,
       );
@@ -341,7 +344,7 @@ export function useEditorSelection({
         ? current.filter(
             (entry) => !(entry.page === item.page && entry.kind === item.kind && entry.id === item.id),
           )
-        : [...current, item];
+        : [...current, directItem];
     });
   };
 

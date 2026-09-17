@@ -6,6 +6,154 @@
   padding: 0;
 }
 
+.layers-content {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.layers-summary {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 2px 4px 7px;
+}
+
+.layer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--line));
+}
+
+.layer-row.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+
+.layer-main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.layer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.layer-badges {
+  display: flex;
+  gap: 3px;
+}
+
+.layer-badges em {
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.layer-actions {
+  display: flex;
+  padding-right: 4px;
+}
+
+.layer-actions button {
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.ocr-layer-group {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px;
+}
+
+.ocr-layer-group summary {
+  display: flex;
+  cursor: pointer;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ocr-layer-group summary small,
+.ocr-layer-group p,
+.layers-empty {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.ocr-layer-toggles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin: 7px 0;
+}
+
+.ocr-layer-toggles button,
+.ocr-source-action {
+  min-height: 30px;
+  font-size: 11px;
+}
+
+.ocr-source-action {
+  width: 100%;
+  margin-top: 7px;
+}
+
+.action-toast {
+  position: fixed;
+  z-index: 1000;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(440px, calc(100vw - 36px));
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 22%);
+  font-size: 12px;
+}
+
+.action-toast button {
+  min-height: 28px;
+}
+
+.canvas-selection-status {
+  position: absolute;
+  z-index: 20;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: 0 3px 12px rgb(0 0 0 / 15%);
+  font-size: 11px;
+  pointer-events: none;
+}
+
 /* Keep normal-PDF deletion feedback consistent with XFA deletion regions. */
 .live-page .text-block.is-deleted {
   background: transparent !important;
@@ -3032,7 +3180,7 @@ button:disabled {
 .image-layer {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 1;
   overflow: hidden;
   pointer-events: none;
 }

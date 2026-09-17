@@ -618,29 +618,44 @@ export function useCanvasInteraction({
     const temporaryPan = event.button === 1 || (event.button === 0 && event.altKey);
     const persistentPan = panEnabled && event.button === 0;
     if ((!temporaryPan && !persistentPan) || !wrap) return;
-    event.preventDefault();
-    event.stopPropagation();
     panRef.current = {
       pointerId: event.pointerId,
       clientX: event.clientX,
       clientY: event.clientY,
       scrollLeft: wrap.scrollLeft,
       scrollTop: wrap.scrollTop,
+      moved: false,
+      temporary: temporaryPan,
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setIsPanning(true);
+    if (!temporaryPan || event.button === 1) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setIsPanning(true);
+    }
   };
 
   const moveCanvasPan = (event: ReactPointerEvent<HTMLDivElement>) => {
     const wrap = canvasWrapRef.current;
     const origin = panRef.current;
     if (!wrap || !origin || origin.pointerId !== event.pointerId) return;
+    if (!origin.moved && Math.hypot(event.clientX - origin.clientX, event.clientY - origin.clientY) < 4) return;
+    if (!origin.moved) {
+      origin.moved = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setIsPanning(true);
+    }
+    event.preventDefault();
     wrap.scrollLeft = origin.scrollLeft - (event.clientX - origin.clientX);
     wrap.scrollTop = origin.scrollTop - (event.clientY - origin.clientY);
   };
 
   const stopCanvasPan = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!panRef.current || panRef.current.pointerId !== event.pointerId) return;
+    if (panRef.current.moved) {
+      marqueeSuppressClickRef.current = true;
+      window.setTimeout(() => { marqueeSuppressClickRef.current = false; }, 0);
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
     panRef.current = null;

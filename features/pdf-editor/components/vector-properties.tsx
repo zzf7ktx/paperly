@@ -136,7 +136,11 @@ export function VectorProperties({ editor }: Props) {
           </label>
         </div>
         <button className={activeVectorEdit.deleted ? 'restore-box' : 'delete-box'} onClick={deleteVector}>
-          {activeVectorEdit.deleted ? 'Restore shape' : 'Delete shape'}
+          {activeVectorEdit.deleted
+            ? 'Restore original shape'
+            : activeVector.added
+              ? 'Delete added shape'
+              : 'Hide original shape'}
         </button>
       </section>
     )) ||

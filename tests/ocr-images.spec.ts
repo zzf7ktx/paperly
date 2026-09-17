@@ -129,6 +129,12 @@ for (const layout of [false, true]) {
       page.locator('.added-text-box.is-selected').filter({ hasText: '+ Deposits and other credits' }),
     ).toHaveCount(1);
     await expect(page.locator('.vector-selection-box')).toHaveCount(0);
+    console.log(await page.evaluate(({ x, y }) => ({
+      elements: document.elementsFromPoint(x, y).map((el) => ({ tag: el.tagName, cls: el.getAttribute('class'), kind: (el as HTMLElement).dataset.graphicKind, id: (el as HTMLElement).dataset.graphicId })),
+      vectors: [...document.querySelectorAll('[data-graphic-kind="vector"]')].map((el) => {
+        const b = el.getBoundingClientRect(); return { id: (el as HTMLElement).dataset.graphicId, left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+      }).filter((b) => x >= b.left - 15 && x <= b.right + 15 && y >= b.top - 15 && y <= b.bottom + 15),
+    }), { x: firstRow!.x - 8, y: firstRow!.y - 3 }));
     // A click at the same background location still selects the shape.
     await page.mouse.click(firstRow!.x - 8, firstRow!.y - 3);
     await expect(page.locator('.vector-selection-box')).toHaveCount(1);

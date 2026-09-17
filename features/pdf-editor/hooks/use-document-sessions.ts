@@ -57,6 +57,8 @@ type Context = Pick<
   | 'addedImages'
   | 'imageEdits'
   | 'vectorEdits'
+  | 'objectMetadata'
+  | 'ocrRuns'
   | 'imageCaptures'
   | 'blockVisuals'
   | 'fontWarnings'
@@ -88,6 +90,8 @@ type Context = Pick<
   | 'setAddedImages'
   | 'setImageEdits'
   | 'setVectorEdits'
+  | 'setObjectMetadata'
+  | 'setOcrRuns'
   | 'setImageCaptures'
   | 'setBlockVisuals'
   | 'setFontWarnings'
@@ -143,6 +147,8 @@ export function useDocumentSessions({
   addedImages,
   imageEdits,
   vectorEdits,
+  objectMetadata,
+  ocrRuns,
   imageCaptures,
   blockVisuals,
   fontWarnings,
@@ -174,6 +180,8 @@ export function useDocumentSessions({
   setAddedImages,
   setImageEdits,
   setVectorEdits,
+  setObjectMetadata,
+  setOcrRuns,
   setImageCaptures,
   setBlockVisuals,
   setFontWarnings,
@@ -233,6 +241,8 @@ export function useDocumentSessions({
       addedImages,
       imageEdits,
       vectorEdits,
+      objectMetadata,
+      ocrRuns,
       imageCaptures,
       blockVisuals,
       fontWarnings,
@@ -270,6 +280,8 @@ export function useDocumentSessions({
     setAddedImages(session.addedImages);
     setImageEdits(session.imageEdits);
     setVectorEdits(session.vectorEdits || {});
+    setObjectMetadata(session.objectMetadata || {});
+    setOcrRuns(session.ocrRuns || []);
     setImageCaptures(session.imageCaptures);
     setBlockVisuals(session.blockVisuals);
     setFontWarnings(session.fontWarnings);
@@ -346,6 +358,8 @@ export function useDocumentSessions({
     setAddedImages([]);
     setImageEdits({});
     setVectorEdits({});
+    setObjectMetadata({});
+    setOcrRuns([]);
     setImageCaptures({});
     setBlockVisuals({});
     setFontWarnings([]);
@@ -642,6 +656,8 @@ export function useDocumentSessions({
         addedImages: [],
         imageEdits: {},
         vectorEdits: {},
+        objectMetadata: {},
+        ocrRuns: [],
         imageCaptures: {},
         blockVisuals: {},
         fontWarnings: warnings,
@@ -665,6 +681,8 @@ export function useDocumentSessions({
       setAddedImages([]);
       setImageEdits({});
       setVectorEdits({});
+      setObjectMetadata({});
+      setOcrRuns([]);
       setImageCaptures({});
       setSelectedImage(null);
       setSelectedVectorId(null);
