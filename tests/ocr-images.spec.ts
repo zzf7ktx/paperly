@@ -39,6 +39,20 @@ test('removing the source scan preserves OCR-recognized shapes and logo', async 
   });
   await expect(page.locator('.image-layer .existing')).toHaveCount(4);
   await expect(page.locator('.image-layer .existing img')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Layers', exact: true }).click();
+  const removeScan = page.getByRole('button', { name: /Remove original scan/ });
+  await expect(removeScan).toBeVisible();
+  await removeScan.click();
+  const sourcePreview = page.getByRole('dialog', { name: 'Preview source scan removal' });
+  await expect(sourcePreview).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Close preview' })).toBeFocused();
+  expect(await sourcePreview.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(
+    'rgba(0, 0, 0, 0)',
+  );
+  await page.keyboard.press('Escape');
+  await expect(sourcePreview).toBeHidden();
+  await expect(removeScan).toBeFocused();
+  await page.getByRole('button', { name: 'Properties', exact: true }).click();
   const largestIndex = await page.locator('.image-layer .existing').evaluateAll(
     (elements) =>
       elements.reduce(

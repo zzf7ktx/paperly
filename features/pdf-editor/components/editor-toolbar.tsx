@@ -95,6 +95,7 @@ type Props = {
 };
 
 export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: Props) {
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const drawPopoverRef = useRef<HTMLDetailsElement>(null);
   const ocrPopoverRef = useRef<HTMLDetailsElement>(null);
   const [autoCloseToolPopups, setAutoCloseToolPopups] = useState(false);
@@ -188,6 +189,27 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
     }
   }, []);
 
+  useEffect(() => {
+    const closePopovers = (event: PointerEvent) => {
+      if (toolbarRef.current?.contains(event.target as Node)) return;
+      toolbarRef.current
+        ?.querySelectorAll<HTMLDetailsElement>('.toolbar-popover[open]')
+        .forEach((popover) => popover.removeAttribute('open'));
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      toolbarRef.current
+        ?.querySelectorAll<HTMLDetailsElement>('.toolbar-popover[open]')
+        .forEach((popover) => popover.removeAttribute('open'));
+    };
+    document.addEventListener('pointerdown', closePopovers);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closePopovers);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, []);
+
   const closeToolPopup = (popover: RefObject<HTMLDetailsElement | null>) => {
     if (autoCloseToolPopups) popover.current?.removeAttribute('open');
   };
@@ -203,9 +225,20 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
 
   return (
     <div
+      ref={toolbarRef}
       className="formatbar"
       aria-label="PDF editing toolbar"
       onClick={(event) => {
+        if (event.target instanceof Element) {
+          const selectedPopover = event.target.closest<HTMLDetailsElement>('.toolbar-popover');
+          if (selectedPopover && event.target.closest('summary')) {
+            toolbarRef.current
+              ?.querySelectorAll<HTMLDetailsElement>('.toolbar-popover[open]')
+              .forEach((popover) => {
+                if (popover !== selectedPopover) popover.removeAttribute('open');
+              });
+          }
+        }
         if (!autoCloseToolPopups || !(event.target instanceof Element)) return;
         const button = event.target.closest('button');
         if (!button || button.classList.contains('paperly-color-trigger')) return;
@@ -293,7 +326,9 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
           <button
             className="shape-selection-toggle"
             disabled={!pageBackground}
-            title={pageBackground ? 'Select the detected full-page background' : 'No page background detected'}
+            title={
+              pageBackground ? 'Select the detected full-page background' : 'No page background detected'
+            }
             onClick={() => {
               if (!pageBackground) return;
               setSelectedVectorId(pageBackground.id);
@@ -458,7 +493,7 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
         <summary className={ocrBusy || tool === 'ocr-region' ? 'active' : ''}>
           OCR <b>{ocrBusy ? `${ocrProgress}%` : isLikelyScannedPage ? 'Scan' : '▾'}</b>
         </summary>
-        <div className="toolbar-popover-panel">
+        <div className="toolbar-popover-panel" aria-label="OCR tools" aria-busy={ocrBusy}>
           <div className="ocr-popover-heading">
             <strong>Scanned text</strong>
             <span>Offline</span>
@@ -498,14 +533,18 @@ export function EditorToolbar({ editor, motionEnabled, onMotionEnabledChange }: 
               <b>Recognize layout</b>
               <small>Images, logos, lines, and table grids</small>
             </span>
-            <strong>{ocrRecognizeLayout ? 'On' : 'Off'}</strong>
+            <b className="ocr-toggle-state">{ocrRecognizeLayout ? 'On' : 'Off'}</b>
           </button>
-          <button className="menu-toggle" disabled={!pdfBytes || ocrBusy} onClick={() => void runOcr()}>
+          <button
+            className="menu-toggle ocr-action"
+            disabled={!pdfBytes || ocrBusy}
+            onClick={() => void runOcr()}
+          >
             <span>Recognize full page</span>
             <b>Run</b>
           </button>
           <button
-            className={`menu-toggle ${tool === 'ocr-region' ? 'active' : ''}`}
+            className={`menu-toggle ocr-action ${tool === 'ocr-region' ? 'active' : ''}`}
             disabled={!pdfBytes || ocrBusy}
             onClick={() => {
               setTool((current) => (current === 'ocr-region' ? 'select' : 'ocr-region'));

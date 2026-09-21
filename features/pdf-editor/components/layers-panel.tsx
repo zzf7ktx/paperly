@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { PdfEditorController } from '../hooks/use-pdf-editor';
 import { selectedElementKey } from '../lib/text';
@@ -32,10 +32,27 @@ export function LayersPanel({ editor, onShowProperties }: Props) {
     hideOcrSourceScan,
   } = editor;
   const [sourcePreview, setSourcePreview] = useState<OcrRun | null>(null);
+  const sourcePreviewCloseRef = useRef<HTMLButtonElement>(null);
   const page = pages[currentPage];
   const runs = ocrRuns.filter((run) => run.page === currentPage);
   const ocrIds = new Set(runs.flatMap((run) => [...run.textIds, ...run.vectorIds, ...run.imageIds]));
   const selectedKeys = new Set(selectedElements.map(selectedElementKey));
+
+  useEffect(() => {
+    if (!sourcePreview) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setSourcePreview(null);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    requestAnimationFrame(() => sourcePreviewCloseRef.current?.focus());
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      previouslyFocused?.focus();
+    };
+  }, [sourcePreview]);
 
   const labelFor = (item: SelectedElementRef) => {
     if (item.kind === 'text') return 'PDF text';
@@ -159,9 +176,17 @@ export function LayersPanel({ editor, onShowProperties }: Props) {
         <p className="ocr-group-intro">
           Choose which recognized parts appear on the page and in the exported PDF.
         </p>
-        <button className="ocr-source-action" onClick={() => setSourcePreview(run)}>
-          <span>Remove original scan</span>
-          <small>Keep all recognized content</small>
+        <button type="button" className="ocr-source-action" onClick={() => setSourcePreview(run)}>
+          <span className="ocr-source-action-icon" aria-hidden="true">
+            <span />
+          </span>
+          <span className="ocr-source-action-copy">
+            <strong>Remove original scan</strong>
+            <small>Keep recognized text, shapes, and images</small>
+          </span>
+          <span className="ocr-source-action-arrow" aria-hidden="true">
+            ›
+          </span>
         </button>
         <div className="ocr-layer-toggles" aria-label="OCR content visibility">
           {controls.map((control) => (
@@ -291,43 +316,79 @@ export function LayersPanel({ editor, onShowProperties }: Props) {
             role="dialog"
             aria-modal="true"
             aria-label="Preview source scan removal"
+            aria-describedby="ocr-source-preview-description"
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header>
-              <strong>Remove source scan?</strong>
-              <button aria-label="Close preview" onClick={() => setSourcePreview(null)}>
+              <span className="ocr-source-preview-title">
+                <span className="ocr-source-preview-icon" aria-hidden="true">
+                  <span />
+                </span>
+                <span>
+                  <small>OCR cleanup</small>
+                  <strong>Remove original scan?</strong>
+                </span>
+              </span>
+              <button
+                ref={sourcePreviewCloseRef}
+                type="button"
+                className="ocr-source-preview-close"
+                aria-label="Close preview"
+                onClick={() => setSourcePreview(null)}
+              >
                 ×
               </button>
             </header>
-            <p>
-              The original full-page scan will be hidden. Recognized text, shapes, images, and cleanup covers
-              remain.
+            <p id="ocr-source-preview-description" className="ocr-source-preview-description">
+              Hide the full-page scan while keeping the content OCR rebuilt as editable layers.
             </p>
             <div className="ocr-preview-comparison">
-              <div>
-                <span className="ocr-preview-page before" />
-                <b>Before</b>
-                <small>Source scan + recognized content</small>
+              <div className="ocr-preview-card">
+                <span className="ocr-preview-card-heading">
+                  <b>Current</b>
+                  <em>Original</em>
+                </span>
+                <span className="ocr-preview-page before" aria-hidden="true">
+                  <i />
+                </span>
+                <strong>Source scan included</strong>
+                <small>Original scan with recognized layers on top</small>
               </div>
-              <div>
-                <span className="ocr-preview-page after" />
-                <b>After</b>
+              <div className="ocr-preview-card is-result">
+                <span className="ocr-preview-card-heading">
+                  <b>Result</b>
+                  <em>Editable</em>
+                </span>
+                <span className="ocr-preview-page after" aria-hidden="true">
+                  <i />
+                </span>
+                <strong>Recognized content only</strong>
                 <small>
-                  {sourcePreview.textIds.length} text · {sourcePreview.vectorIds.length} shapes ·{' '}
+                  {sourcePreview.textIds.length} text, {sourcePreview.vectorIds.length} shapes,{' '}
                   {sourcePreview.imageIds.length} images
                 </small>
               </div>
             </div>
+            <div className="ocr-source-preview-note">
+              <span aria-hidden="true">↶</span>
+              <span>
+                <strong>You can undo this action</strong>
+                <small>Cleanup covers and every recognized layer will remain unchanged.</small>
+              </span>
+            </div>
             <footer>
-              <button onClick={() => setSourcePreview(null)}>Cancel</button>
+              <button type="button" className="secondary" onClick={() => setSourcePreview(null)}>
+                Cancel
+              </button>
               <button
-                className="danger"
+                type="button"
+                className="danger ocr-source-confirm"
                 onClick={() => {
                   hideOcrSourceScan(sourcePreview);
                   setSourcePreview(null);
                 }}
               >
-                Hide source scan
+                Remove original scan
               </button>
             </footer>
           </section>
