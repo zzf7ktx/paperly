@@ -39,6 +39,14 @@ test('removing the source scan preserves OCR-recognized shapes and logo', async 
   });
   await expect(page.locator('.image-layer .existing')).toHaveCount(4);
   await expect(page.locator('.image-layer .existing img')).toHaveCount(1);
+  const nestedOcrText = page
+    .locator('.added-text-content')
+    .filter({ hasText: 'Please continue' })
+    .locator('..');
+  await nestedOcrText.click({ modifiers: ['Alt'] });
+  await expect(page.locator('.canvas-selection-status')).toHaveText('OCR text');
+  await page.waitForTimeout(250);
+  await expect(page.locator('.canvas-selection-status')).toHaveText('OCR text');
   await page.getByRole('button', { name: 'Layers', exact: true }).click();
   const removeScan = page.getByRole('button', { name: /Remove original scan/ });
   await expect(removeScan).toBeVisible();

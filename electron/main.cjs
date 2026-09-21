@@ -164,7 +164,7 @@ async function createWindow() {
     minHeight: 620,
     backgroundColor: '#ecebe5',
     show: false,
-    autoHideMenuBar: true,
+    autoHideMenuBar: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -172,6 +172,10 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
     },
   });
+  // A hidden native menu still captures Alt on Windows and appears over the
+  // editor. Paperly uses Alt for canvas interactions, so remove the unused
+  // menu entirely instead of auto-hiding it.
+  window.removeMenu();
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
     return { action: 'deny' };

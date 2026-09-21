@@ -5,7 +5,6 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   useEffect,
-  useRef,
   useState,
 } from 'react';
 import { DemoDocument } from './demo-document';
@@ -240,7 +239,6 @@ export function EditorCanvas({ editor }: Props) {
     zoomCanvasWithWheel,
   } = editor;
   const [canvasDraftVector, setCanvasDraftVector] = useState(draftVector);
-  const selectionCycleRef = useRef<{ keys: string[]; index: number } | null>(null);
 
   useEffect(() => {
     const updateDraft = (event: Event) =>
@@ -304,16 +302,6 @@ export function EditorCanvas({ editor }: Props) {
     if (!candidates.length || (!event.altKey && target.closest('[contenteditable="true"]'))) return;
     candidates.sort((a, b) => Number(a.dataset.graphicArea) - Number(b.dataset.graphicArea));
     let chosen = candidates[0];
-    if (event.altKey) {
-      const keys = candidates.map(
-        (candidate) => `${candidate.dataset.graphicKind}:${candidate.dataset.graphicId}`,
-      );
-      const previous = selectionCycleRef.current;
-      const same = previous && previous.keys.join('|') === keys.join('|');
-      const index = same ? (previous.index + 1) % candidates.length : 0;
-      selectionCycleRef.current = { keys, index };
-      chosen = candidates[index];
-    } else selectionCycleRef.current = null;
     if (
       !event.altKey &&
       chosen.dataset.graphicKind === 'image' &&
@@ -555,6 +543,9 @@ export function EditorCanvas({ editor }: Props) {
                     vector.height >= pages[currentPage].height * 0.98;
                   const formOwnedVector = isFormOwnedVector(currentPage, vector);
                   const selectShape = (event: ReactMouseEvent<SVGElement>) => {
+                    // Alt-click is resolved by the page capture handler, which
+                    // deliberately selects the smallest nested graphic.
+                    if (event.altKey) return;
                     if (marqueeSuppressClickRef.current) return;
                     if (isLayerObjectLocked({ page: currentPage, kind: 'vector', id: vector.id })) return;
                     if (formOwnedVector || ((!vector.added || Boolean(vector.ocrRunId)) && !selectPdfShapes))
@@ -729,6 +720,7 @@ export function EditorCanvas({ editor }: Props) {
                         1,
                       )}
                       onClick={(event) => {
+                        if (event.altKey) return;
                         event.stopPropagation();
                         if (
                           !marqueeSuppressClickRef.current &&
@@ -788,6 +780,7 @@ export function EditorCanvas({ editor }: Props) {
                       data-graphic-id={image.id}
                       data-graphic-area={Math.max(image.width * image.height, 1)}
                       onClick={(event) => {
+                        if (event.altKey) return;
                         event.stopPropagation();
                         if (marqueeSuppressClickRef.current) return;
                         if (isLayerObjectLocked({ page: currentPage, kind: 'added-image', id: image.id }))
@@ -920,6 +913,7 @@ export function EditorCanvas({ editor }: Props) {
                         }
                       }}
                       onClick={(event) => {
+                        if (event.altKey) return;
                         event.stopPropagation();
                         if (isLayerObjectLocked({ page: currentPage, kind: 'text', id: String(block.id) }))
                           return;
@@ -1056,6 +1050,7 @@ export function EditorCanvas({ editor }: Props) {
                         }
                       }}
                       onClick={(event) => {
+                        if (event.altKey) return;
                         event.stopPropagation();
                         if (isLayerObjectLocked({ page: currentPage, kind: 'added-text', id: box.id }))
                           return;
