@@ -4,7 +4,9 @@ import {
   Fragment,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 import { DemoDocument } from './demo-document';
@@ -95,6 +97,7 @@ type Props = {
     | 'vectorBackgroundForText'
     | 'updateElementSelection'
     | 'isLayerObjectLocked'
+    | 'isLayerObjectHidden'
     | 'commit'
     | 'selectExistingBlock'
     | 'measureAddedBox'
@@ -201,6 +204,7 @@ export function EditorCanvas({ editor }: Props) {
     vectorBackgroundForText,
     updateElementSelection,
     isLayerObjectLocked,
+    isLayerObjectHidden,
     commit,
     selectExistingBlock,
     measureAddedBox,
@@ -239,6 +243,7 @@ export function EditorCanvas({ editor }: Props) {
     zoomCanvasWithWheel,
   } = editor;
   const [canvasDraftVector, setCanvasDraftVector] = useState(draftVector);
+  const textPointerSelectionRef = useRef(false);
 
   useEffect(() => {
     const updateDraft = (event: Event) =>
@@ -246,92 +251,38 @@ export function EditorCanvas({ editor }: Props) {
     window.addEventListener('paperly-draft-vector', updateDraft);
     return () => window.removeEventListener('paperly-draft-vector', updateDraft);
   }, []);
-  const selectGraphicAtPointer = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (tool !== 'select' || panEnabled || marqueeSuppressClickRef.current) return;
+  const selectGraphicAtPointer = (
+    event: ReactMouseEvent<HTMLDivElement> | ReactPointerEvent<HTMLDivElement>,
+    textPointerDown = false,
+  ) => {
+    if (tool !== 'select' || panEnabled || event.altKey || marqueeSuppressClickRef.current) return;
     const target = event.target as Element;
     if (target.closest('button,.pdf-form-control,.xfaLayer,.xfa-edit-layer')) return;
-    const pageBounds = event.currentTarget.getBoundingClientRect();
-    const point = {
-      x: (event.clientX - pageBounds.left) / zoom,
-      top: (event.clientY - pageBounds.top) / zoom,
-    };
-    const vectorAtPoint = pages[currentPage].vectors
-      .filter((vector) => {
-        if (!vector.added || vector.hidden || vectorEdits[`${currentPage}:${vector.id}`]?.deleted)
-          return false;
-        if (vector.ocrRunId && !selectPdfShapes) return false;
-        const edit = vectorEdits[`${currentPage}:${vector.id}`] || {};
-        // Thin OCR-derived rules need a forgiving hit target even when the visible stroke is tiny.
-        const padding = Math.max(18 / zoom, edit.strokeWidth ?? vector.strokeWidth ?? 1);
-        const x = edit.x ?? vector.x;
-        const top = edit.top ?? vector.top;
-        const width = edit.width ?? vector.width;
-        const height = edit.height ?? vector.height;
-        return (
-          point.x >= x - padding &&
-          point.x <= x + width + padding &&
-          point.top >= top - padding &&
-          point.top <= top + height + padding
-        );
-      })
-      .sort((a, b) => a.width * a.height - b.width * b.height)[0];
-    if (!event.altKey && vectorAtPoint) {
-      event.preventDefault();
-      event.stopPropagation();
-      updateElementSelection({ page: currentPage, kind: 'vector', id: vectorAtPoint.id }, event.shiftKey);
-      setSelectedVectorId(vectorAtPoint.id);
+    const chosen = target.closest<HTMLElement>('[data-graphic-kind][data-graphic-id]');
+    if (!chosen || !event.currentTarget.contains(chosen)) return;
+    const kind = chosen.dataset.graphicKind;
+    const isText = kind === 'text' || kind === 'added-text';
+    if (textPointerDown !== isText) return;
+    const id = chosen.dataset.graphicId!;
+    const itemKind = kind as 'text' | 'image' | 'vector' | 'added-text' | 'added-image';
+    const item = { page: currentPage, kind: itemKind, id };
+    if (isLayerObjectLocked(item) || isLayerObjectHidden(item)) return;
+    // Keep ordinary caret placement, but Shift selects objects instead of a DOM text range.
+    if (!isText || (textPointerDown && event.shiftKey)) event.preventDefault();
+    if (textPointerDown && event.shiftKey) window.getSelection()?.removeAllRanges();
+    event.stopPropagation();
+    if (event.shiftKey && isElementSelected(itemKind, id)) {
+      updateElementSelection(item, true);
+      setSelectedVectorId(null);
       setSelected(null);
       setSelectedForm(null);
       setSelectedAddedId(null);
       setSelectedImage(null);
       return;
     }
-    const candidates = document
-      .elementsFromPoint(event.clientX, event.clientY)
-      .map((element) => element.closest<HTMLElement>('[data-graphic-kind][data-graphic-id]'))
-      .filter(
-        (element, index, elements): element is HTMLElement =>
-          Boolean(element) &&
-          elements.indexOf(element) === index &&
-          !(
-            element?.dataset.graphicKind === 'vector' &&
-            !selectPdfShapes &&
-            pages[currentPage].vectors.find((vector) => vector.id === element.dataset.graphicId)?.ocrRunId
-          ),
-      );
-    if (!candidates.length || (!event.altKey && target.closest('[contenteditable="true"]'))) return;
-    candidates.sort((a, b) => Number(a.dataset.graphicArea) - Number(b.dataset.graphicArea));
-    let chosen = candidates[0];
-    if (
-      !event.altKey &&
-      chosen.dataset.graphicKind === 'image' &&
-      !chosen.dataset.graphicId?.startsWith('ocr-image-')
-    ) {
-      const addedVectors = [
-        ...event.currentTarget.querySelectorAll<HTMLElement>('[data-graphic-added="true"]'),
-      ].filter((element) => {
-        const bounds = element.getBoundingClientRect();
-        return (
-          event.clientX >= bounds.left &&
-          event.clientX <= bounds.right &&
-          event.clientY >= bounds.top &&
-          event.clientY <= bounds.bottom
-        );
-      });
-      if (addedVectors.length)
-        chosen = addedVectors.reduce((smallest, candidate) =>
-          Number(candidate.dataset.graphicArea) < Number(smallest.dataset.graphicArea) ? candidate : smallest,
-        );
-    }
-    const kind = chosen.dataset.graphicKind;
-    const id = chosen.dataset.graphicId!;
-    const itemKind = kind as 'text' | 'image' | 'vector' | 'added-text' | 'added-image';
-    if (isLayerObjectLocked({ page: currentPage, kind: itemKind, id })) return;
-    event.preventDefault();
-    event.stopPropagation();
     if (kind === 'vector') {
       const vector = pages[currentPage].vectors.find((entry) => entry.id === id);
-      if (!vector) return;
+      if (!vector || (!vector.added && !vector.ocrRunId && !selectPdfShapes)) return;
       if (moveShapeContents && !event.shiftKey) setSelectedElements(relatedShapeElements(currentPage, [id]));
       else updateElementSelection({ page: currentPage, kind: 'vector', id }, event.shiftKey);
       setSelectedVectorId(id);
@@ -420,7 +371,24 @@ export function EditorCanvas({ editor }: Props) {
         pages[currentPage] && (
           <div
             className={`live-page ${tool === 'add-text' ? 'placing-text' : ''} ${tool === 'add-xfa' ? 'placing-xfa' : ''} ${tool === 'add-form' ? 'placing-form' : ''} ${tool === 'ocr-region' ? 'placing-ocr' : ''} ${tool.startsWith('draw-') ? 'placing-vector' : ''}`}
-            onClickCapture={selectGraphicAtPointer}
+            onPointerDownCapture={(event) => {
+              textPointerSelectionRef.current = false;
+              if (event.button !== 0) return;
+              const target = event.target as Element;
+              if (!target.closest('[data-graphic-kind="text"],[data-graphic-kind="added-text"]')) return;
+              textPointerSelectionRef.current = true;
+              selectGraphicAtPointer(event, true);
+            }}
+            onClickCapture={(event) => {
+              if (textPointerSelectionRef.current) {
+                textPointerSelectionRef.current = false;
+                return;
+              }
+              selectGraphicAtPointer(event);
+            }}
+            onPointerCancel={() => {
+              textPointerSelectionRef.current = false;
+            }}
             onPointerDown={(event) => {
               startMarqueeSelection(event);
               startOcrRegionSelection(event);
@@ -537,48 +505,34 @@ export function EditorCanvas({ editor }: Props) {
                     canvasDraftVector?.id === vector.id ||
                     Object.keys(edit).some((property) => property !== 'deleted');
                   const selectedVector = selectedVectorId === vector.id;
+                  const inSelection = isElementSelected('vector', vector.id);
                   const pageBackdrop =
                     !vector.added &&
                     vector.width >= pages[currentPage].width * 0.98 &&
                     vector.height >= pages[currentPage].height * 0.98;
                   const formOwnedVector = isFormOwnedVector(currentPage, vector);
-                  const selectShape = (event: ReactMouseEvent<SVGElement>) => {
-                    // Alt-click is resolved by the page capture handler, which
-                    // deliberately selects the smallest nested graphic.
-                    if (event.altKey) return;
-                    if (marqueeSuppressClickRef.current) return;
-                    if (isLayerObjectLocked({ page: currentPage, kind: 'vector', id: vector.id })) return;
-                    if (formOwnedVector || ((!vector.added || Boolean(vector.ocrRunId)) && !selectPdfShapes))
-                      return;
-                    if (!selectPdfShapes) event.stopPropagation();
-                    if (moveShapeContents && !event.shiftKey)
-                      setSelectedElements(relatedShapeElements(currentPage, [vector.id]));
-                    else
-                      updateElementSelection(
-                        { page: currentPage, kind: 'vector', id: vector.id },
-                        event.shiftKey,
-                      );
-                    setSelectedVectorId(vector.id);
-                    setSelected(null);
-                    setSelectedForm(null);
-                    setSelectedAddedId(null);
-                    setSelectedImage(null);
-                  };
                   const selectableShape = Boolean(
                     !formOwnedVector &&
-                    ((vector.added && (!vector.ocrRunId || selectPdfShapes)) ||
+                    !vector.hidden &&
+                    (vector.added ||
+                      Boolean(vector.ocrRunId) ||
                       (selectPdfShapes && !pageBackdrop) ||
                       selectedVector),
                   );
                   const common = {
-                    className: selectableShape ? 'editable-vector' : undefined,
+                    className: selectableShape
+                      ? `editable-vector ${inSelection ? 'is-selected' : ''}`
+                      : undefined,
                     'data-graphic-kind': selectableShape ? 'vector' : undefined,
                     'data-graphic-id': selectableShape ? vector.id : undefined,
                     'data-graphic-area': selectableShape ? Math.max(width * height, 1) : undefined,
                     'data-graphic-added': selectableShape && vector.added ? 'true' : undefined,
-                    onClick: selectShape,
                     style: {
-                      pointerEvents: selectableShape ? ('all' as const) : ('none' as const),
+                      pointerEvents: selectableShape
+                        ? fill === 'transparent' || fill === 'none'
+                          ? ('visibleStroke' as const)
+                          : ('all' as const)
+                        : ('none' as const),
                       cursor: selectableShape ? 'pointer' : 'default',
                     },
                     opacity: changed && !formOwnedVector ? (edit.opacity ?? vector.opacity ?? 1) : 0,
@@ -641,6 +595,15 @@ export function EditorCanvas({ editor }: Props) {
                           fill={fill}
                           stroke={stroke}
                           strokeWidth={strokeWidth}
+                        />
+                      )}
+                      {inSelection && !selectedVector && (
+                        <rect
+                          className="vector-multi-selection-outline"
+                          x={x}
+                          y={top}
+                          width={Math.max(width, 2 / zoom)}
+                          height={Math.max(height, 2 / zoom)}
                         />
                       )}
                       {selectedVector && !formOwnedVector && (
@@ -719,15 +682,6 @@ export function EditorCanvas({ editor }: Props) {
                         (edit?.width ?? image.width) * (edit?.height ?? image.height),
                         1,
                       )}
-                      onClick={(event) => {
-                        if (event.altKey) return;
-                        event.stopPropagation();
-                        if (
-                          !marqueeSuppressClickRef.current &&
-                          !isLayerObjectLocked({ page: currentPage, kind: 'image', id: image.id })
-                        )
-                          selectExistingImage(image, event.shiftKey);
-                      }}
                       style={{
                         left,
                         top,
@@ -779,21 +733,6 @@ export function EditorCanvas({ editor }: Props) {
                       data-graphic-kind="added-image"
                       data-graphic-id={image.id}
                       data-graphic-area={Math.max(image.width * image.height, 1)}
-                      onClick={(event) => {
-                        if (event.altKey) return;
-                        event.stopPropagation();
-                        if (marqueeSuppressClickRef.current) return;
-                        if (isLayerObjectLocked({ page: currentPage, kind: 'added-image', id: image.id }))
-                          return;
-                        updateElementSelection(
-                          { page: currentPage, kind: 'added-image', id: image.id },
-                          event.shiftKey,
-                        );
-                        setSelectedImage({ kind: 'added', id: image.id });
-                        setSelected(null);
-                        setSelectedAddedId(null);
-                        setSelectedForm(null);
-                      }}
                       onPointerDown={(event) => {
                         if (isPrimary && event.button === 0 && !(event.target as Element).closest('button'))
                           startImageDrag(event, 'added', image);
@@ -911,13 +850,6 @@ export function EditorCanvas({ editor }: Props) {
                           event.preventDefault();
                           window.getSelection()?.removeAllRanges();
                         }
-                      }}
-                      onClick={(event) => {
-                        if (event.altKey) return;
-                        event.stopPropagation();
-                        if (isLayerObjectLocked({ page: currentPage, kind: 'text', id: String(block.id) }))
-                          return;
-                        selectExistingBlock(block, event.shiftKey);
                       }}
                       onInput={(event) => {
                         const text = editableTextValue(event.currentTarget);
@@ -1048,20 +980,6 @@ export function EditorCanvas({ editor }: Props) {
                           event.preventDefault();
                           window.getSelection()?.removeAllRanges();
                         }
-                      }}
-                      onClick={(event) => {
-                        if (event.altKey) return;
-                        event.stopPropagation();
-                        if (isLayerObjectLocked({ page: currentPage, kind: 'added-text', id: box.id }))
-                          return;
-                        updateElementSelection(
-                          { page: currentPage, kind: 'added-text', id: box.id },
-                          event.shiftKey,
-                        );
-                        setSelectedAddedId(box.id);
-                        setSelected(null);
-                        setSelectedForm(null);
-                        setSelectedImage(null);
                       }}
                       style={{
                         left: box.x * zoom,

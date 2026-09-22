@@ -7,7 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react';
-import { blockKey } from '../lib/text';
+import { blockKey, selectedElementKey } from '../lib/text';
 import {
   captureNativePdfImage,
   imageOverlapsEditedImages,
@@ -49,6 +49,7 @@ type Context = Pick<
   | 'imageEdits'
   | 'addedBoxes'
   | 'addedImages'
+  | 'objectMetadata'
   | 'moveShapeContents'
   | 'setSelectedElements'
   | 'setSelectedXfaKey'
@@ -119,6 +120,7 @@ export function useCanvasInteraction({
   imageEdits,
   addedBoxes,
   addedImages,
+  objectMetadata,
   moveShapeContents,
   relatedShapeElements,
   setSelectedElements,
@@ -430,10 +432,12 @@ export function useCanvasInteraction({
       return next;
     });
   };
-  deleteVectorRef.current = deleteVector;
+  useEffect(() => {
+    deleteVectorRef.current = deleteVector;
+  }, [deleteVectorRef, deleteVector]);
 
   const startMarqueeSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (tool !== 'select' || panEnabled || event.button !== 0) return;
+    if (tool !== 'select' || panEnabled || event.altKey || event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (
       target.closest(
@@ -448,8 +452,17 @@ export function useCanvasInteraction({
       top: Math.max(0, Math.min((pointerEvent.clientY - bounds.top) / zoom, pages[currentPage].height)),
     });
     const origin = point(event);
+    const pointerId = event.pointerId;
+    const originClient = { x: event.clientX, y: event.clientY };
+    let dragging = false;
     let rectangle = { x: origin.x, top: origin.top, width: 0, height: 0 };
     const move = (pointerEvent: PointerEvent) => {
+      if (pointerEvent.pointerId !== pointerId) return;
+      if (!dragging) {
+        if (Math.hypot(pointerEvent.clientX - originClient.x, pointerEvent.clientY - originClient.y) < 5)
+          return;
+        dragging = true;
+      }
       const current = point(pointerEvent);
       rectangle = {
         x: Math.min(origin.x, current.x),
@@ -459,12 +472,13 @@ export function useCanvasInteraction({
       };
       setSelectionMarquee(rectangle);
     };
-    const stop = () => {
+    const stop = (pointerEvent: PointerEvent) => {
+      if (pointerEvent.pointerId !== pointerId) return;
       document.removeEventListener('pointermove', move);
       document.removeEventListener('pointerup', stop);
       document.removeEventListener('pointercancel', cancel);
       setSelectionMarquee(null);
-      if (rectangle.width <= 3 && rectangle.height <= 3) return;
+      if (!dragging) return;
       marqueeSuppressClickRef.current = true;
       window.setTimeout(() => {
         marqueeSuppressClickRef.current = false;
@@ -480,29 +494,33 @@ export function useCanvasInteraction({
         rectangle.x + rectangle.width >= x + width &&
         rectangle.top + rectangle.height >= top + height;
       const hits: SelectedElementRef[] = [];
-      if (rectangle.width > 3 || rectangle.height > 3) {
-        if (selectPdfShapes) {
-          pages[currentPage].vectors.forEach((vector) => {
-            const edit = vectorEdits[`${currentPage}:${vector.id}`];
-            if (
-              (vector.width < pages[currentPage].width * 0.98 ||
-                vector.height < pages[currentPage].height * 0.98) &&
-              !edit?.deleted &&
-              !isFormOwnedVector(currentPage, vector) &&
-              intersects(
-                edit?.x ?? vector.x,
-                edit?.top ?? vector.top,
-                edit?.width ?? vector.width,
-                edit?.height ?? vector.height,
-              )
+      if (rectangle.width > 0 || rectangle.height > 0) {
+        pages[currentPage].vectors.forEach((vector) => {
+          const edit = vectorEdits[`${currentPage}:${vector.id}`];
+          const item: SelectedElementRef = { page: currentPage, kind: 'vector', id: vector.id };
+          if (
+            (selectPdfShapes || vector.added || vector.ocrRunId) &&
+            (vector.width < pages[currentPage].width * 0.98 ||
+              vector.height < pages[currentPage].height * 0.98) &&
+            !vector.hidden &&
+            !edit?.deleted &&
+            !objectMetadata[selectedElementKey(item)]?.locked &&
+            !isFormOwnedVector(currentPage, vector) &&
+            intersects(
+              edit?.x ?? vector.x,
+              edit?.top ?? vector.top,
+              edit?.width ?? vector.width,
+              edit?.height ?? vector.height,
             )
-              hits.push({ page: currentPage, kind: 'vector', id: vector.id });
-          });
-        }
+          )
+            hits.push(item);
+        });
         pages[currentPage].blocks.forEach((block) => {
           const edit = edits[blockKey(currentPage, block.id)];
+          const item: SelectedElementRef = { page: currentPage, kind: 'text', id: String(block.id) };
           if (
             !edit?.deleted &&
+            !objectMetadata[selectedElementKey(item)]?.locked &&
             intersects(
               edit?.x ?? block.x,
               edit?.top ?? block.top,
@@ -510,12 +528,14 @@ export function useCanvasInteraction({
               edit?.height ?? block.height,
             )
           )
-            hits.push({ page: currentPage, kind: 'text', id: String(block.id) });
+            hits.push(item);
         });
         pages[currentPage].forms.forEach((field) => {
           const edit = formEdits[`${currentPage}:${field.id}`];
+          const item: SelectedElementRef = { page: currentPage, kind: 'form', id: field.id };
           if (
             !edit?.deleted &&
+            !objectMetadata[selectedElementKey(item)]?.locked &&
             intersects(
               edit?.x ?? field.x,
               edit?.top ?? field.top,
@@ -523,12 +543,15 @@ export function useCanvasInteraction({
               edit?.height ?? field.height,
             )
           )
-            hits.push({ page: currentPage, kind: 'form', id: field.id });
+            hits.push(item);
         });
         pages[currentPage].images.forEach((image) => {
           const edit = imageEdits[`${currentPage}:${image.id}`];
+          const item: SelectedElementRef = { page: currentPage, kind: 'image', id: image.id };
           if (
+            !image.hidden &&
             !edit?.deleted &&
+            !objectMetadata[selectedElementKey(item)]?.locked &&
             contains(
               edit?.x ?? image.x,
               edit?.top ?? image.top,
@@ -536,26 +559,32 @@ export function useCanvasInteraction({
               edit?.height ?? image.height,
             )
           )
-            hits.push({ page: currentPage, kind: 'image', id: image.id });
+            hits.push(item);
         });
         addedBoxes
-          .filter((box) => box.page === currentPage)
+          .filter((box) => box.page === currentPage && !box.hidden)
           .forEach((box) => {
-            if (intersects(box.x, box.top, box.width, box.height))
-              hits.push({ page: currentPage, kind: 'added-text', id: box.id });
+            const item: SelectedElementRef = { page: currentPage, kind: 'added-text', id: box.id };
+            if (
+              !objectMetadata[selectedElementKey(item)]?.locked &&
+              intersects(box.x, box.top, box.width, box.height)
+            )
+              hits.push(item);
           });
         addedImages
-          .filter((image) => image.page === currentPage)
+          .filter((image) => image.page === currentPage && !image.hidden)
           .forEach((image) => {
-            if (contains(image.x, image.top, image.width, image.height))
-              hits.push({ page: currentPage, kind: 'added-image', id: image.id });
+            const item: SelectedElementRef = { page: currentPage, kind: 'added-image', id: image.id };
+            if (
+              !objectMetadata[selectedElementKey(item)]?.locked &&
+              contains(image.x, image.top, image.width, image.height)
+            )
+              hits.push(item);
           });
       }
       const shapeSeeds = hits.filter((hit) => hit.kind === 'vector').map((hit) => hit.id);
       const expandedShapeHits =
-        selectPdfShapes && moveShapeContents && shapeSeeds.length
-          ? relatedShapeElements(currentPage, shapeSeeds)
-          : [];
+        moveShapeContents && shapeSeeds.length ? relatedShapeElements(currentPage, shapeSeeds) : [];
       const resolvedHits = [...hits];
       expandedShapeHits.forEach((hit) => {
         if (
@@ -639,7 +668,8 @@ export function useCanvasInteraction({
     const wrap = canvasWrapRef.current;
     const origin = panRef.current;
     if (!wrap || !origin || origin.pointerId !== event.pointerId) return;
-    if (!origin.moved && Math.hypot(event.clientX - origin.clientX, event.clientY - origin.clientY) < 4) return;
+    if (!origin.moved && Math.hypot(event.clientX - origin.clientX, event.clientY - origin.clientY) < 4)
+      return;
     if (!origin.moved) {
       origin.moved = true;
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -654,7 +684,9 @@ export function useCanvasInteraction({
     if (!panRef.current || panRef.current.pointerId !== event.pointerId) return;
     if (panRef.current.moved) {
       marqueeSuppressClickRef.current = true;
-      window.setTimeout(() => { marqueeSuppressClickRef.current = false; }, 0);
+      window.setTimeout(() => {
+        marqueeSuppressClickRef.current = false;
+      }, 0);
     }
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);

@@ -2,7 +2,7 @@
 
 import { fontOptions } from '../constants';
 import { editableBlockFont, fontFamilyIdentity, isSupportedTypeface } from '../lib/fonts';
-import { blockKey, parseDelimitedText } from '../lib/text';
+import { blockKey, parseDelimitedText, selectedElementKey } from '../lib/text';
 import type { PropertyPanelMode, SelectedElementRef, TextBlock, TextWeight, VectorBlock } from '../types';
 import type { EditorState } from './use-editor-state';
 
@@ -20,6 +20,7 @@ type Context = Pick<
   | 'imageEdits'
   | 'selectedVectorId'
   | 'vectorEdits'
+  | 'objectMetadata'
   | 'selectedXfaKey'
   | 'xfaStructureEdits'
   | 'xfaFields'
@@ -53,6 +54,7 @@ export function useEditorSelection({
   imageEdits,
   selectedVectorId,
   vectorEdits,
+  objectMetadata,
   selectedXfaKey,
   xfaStructureEdits,
   xfaFields,
@@ -233,6 +235,9 @@ export function useEditorSelection({
       .filter(
         (entry) =>
           !entry.deleted &&
+          !entry.vector.hidden &&
+          !objectMetadata[selectedElementKey({ page: pageIndex, kind: 'vector', id: entry.vector.id })]
+            ?.locked &&
           !isFormOwnedVector(pageIndex, entry.vector) &&
           (selectedIds.has(entry.vector.id) ||
             entry.width < page.width * 0.98 ||
@@ -285,6 +290,8 @@ export function useEditorSelection({
         const centerY = blockTop + block.height / 2;
         if (
           !edit?.deleted &&
+          !objectMetadata[selectedElementKey({ page: pageIndex, kind: 'text', id: String(block.id) })]
+            ?.locked &&
           centerX >= left - 1 &&
           centerX <= right + 1 &&
           centerY >= top - 1 &&

@@ -43,7 +43,7 @@ test('removing the source scan preserves OCR-recognized shapes and logo', async 
     .locator('.added-text-content')
     .filter({ hasText: 'Please continue' })
     .locator('..');
-  await nestedOcrText.click({ modifiers: ['Alt'] });
+  await nestedOcrText.click();
   await expect(page.locator('.canvas-selection-status')).toHaveText('OCR text');
   await page.waitForTimeout(250);
   await expect(page.locator('.canvas-selection-status')).toHaveText('OCR text');
@@ -86,6 +86,38 @@ test('removing the source scan preserves OCR-recognized shapes and logo', async 
     ocrText: Number(getComputedStyle(document.querySelector('.added-text-layer')!).zIndex),
   }));
   expect(layerOrder.ocrText).toBeGreaterThan(layerOrder.shapes);
+});
+
+test('hidden OCR text does not block shape clicks or enter marquee selections', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.goto('/');
+  await page
+    .locator('input[type=file][accept="application/pdf,.pdf"]')
+    .setInputFiles('tests/fixtures/scanned-statement.pdf');
+  await expect(page.locator('.image-layer .existing')).toHaveCount(3, { timeout: 60_000 });
+  await page.locator('.ocr-popover > summary').click();
+  await page.getByText('Recognize full page', { exact: true }).click();
+  await expect(page.locator('.added-text-box').first()).toBeVisible({ timeout: 120_000 });
+
+  await page.getByRole('button', { name: 'Layers', exact: true }).click();
+  await page.locator('.ocr-layer-toggles button').first().click();
+  await expect(page.locator('.added-text-box')).toHaveCount(0);
+
+  const shapes = page.locator('.vector-layer .editable-vector');
+  expect(await shapes.count()).toBeGreaterThan(1);
+  await shapes.first().click({ force: true });
+  await expect(page.locator('.canvas-selection-status')).toContainText('OCR shape');
+
+  const pageBounds = await page.locator('.live-page').boundingBox();
+  expect(pageBounds).not.toBeNull();
+  await page.mouse.move(pageBounds!.x + 4, pageBounds!.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(pageBounds!.x + pageBounds!.width - 4, pageBounds!.y + pageBounds!.height - 4, {
+    steps: 8,
+  });
+  await page.mouse.up();
+  await expect(page.locator('.vector-layer .editable-vector.is-selected').first()).toBeVisible();
+  await expect(page.locator('.ocr-member-list').first().locator('.layer-row.is-selected')).toHaveCount(0);
 });
 
 for (const layout of [false, true]) {
